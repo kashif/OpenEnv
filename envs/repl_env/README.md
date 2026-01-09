@@ -1,3 +1,16 @@
+---
+title: REPL Environment Server
+emoji: 🎮
+colorFrom: yellow
+colorTo: indigo
+sdk: docker
+pinned: false
+app_port: 8000
+base_path: /web
+tags:
+  - openenv
+---
+
 # REPL Environment for OpenEnv
 
 A Python REPL environment for training language models on code execution tasks, based on the [Recursive Language Models (RLM)](https://arxiv.org/abs/2512.24601) paradigm.
