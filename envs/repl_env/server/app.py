@@ -46,7 +46,7 @@ except ImportError:
 # ============== LLM CONFIGURATION ==============
 # Model to use for llm_query and llm_batch
 # Using Qwen2.5 (no thinking mode, simpler responses)
-LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen/Qwen3-Coder-30B-A3B-Instruct")
+LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen/Qwen3-Coder-480B-A35B-Instruct")
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
 # ===============================================
 
