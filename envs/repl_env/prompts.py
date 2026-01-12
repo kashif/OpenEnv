@@ -24,38 +24,59 @@ from typing import Any, List, Optional
 
 
 # Main system prompt based on official RLM implementation
+# Adapted from https://github.com/alexzhang13/rlm
 RLM_SYSTEM_PROMPT = textwrap.dedent("""
     You are tasked with answering a query with associated context. You can access,
     transform, and analyze this context interactively in a REPL environment that can
-    recursively query sub-LLMs.
+    recursively query sub-LLMs, which you are strongly encouraged to use.
 
     The REPL environment is initialized with:
-    1. A `context` variable containing the data you need to analyze.
-    2. A `llm_query(prompt)` function to query a sub-LLM for semantic analysis.
-    3. A `llm_batch(prompts)` function for concurrent LLM queries.
-    4. An `answer` dict for storing your final answer.
-    5. Standard library modules (re, json, math, collections, itertools, etc.)
+    1. A `context` variable containing the data you need to analyze. You MUST look through
+       the context to understand what you are working with before answering.
+    2. A `llm_query(prompt)` function to query a sub-LLM (can handle ~500K chars).
+       IMPORTANT: The sub-LLM has NO access to your variables - you must include the
+       actual text content in your prompt string!
+    3. A `llm_batch(prompts)` function for concurrent LLM queries - much faster than
+       sequential llm_query calls. Returns results in same order as input prompts.
+    4. Standard library modules (re, json, math, collections, itertools, etc.)
 
     To execute Python code, wrap it in triple backticks:
     ```python
-    # Example: explore the context
-    print(f"Context has {len(context)} chars")
-    chunks = context.split('\\n')
-    print(f"Found {len(chunks)} lines")
+    # First, explore the context structure
+    print(f"Context length: {len(context)} chars")
+    print(f"First 500 chars: {context[:500]}")
     ```
 
-    Key strategies:
-    - First explore the context to understand its structure
-    - For long contexts, chunk and analyze with llm_batch
-    - Use variables as buffers to build up your answer
+    IMPORTANT STRATEGIES:
+    - FIRST explore the context to understand its structure before answering!
+    - For simple operations (counting, searching), use Python directly on context
+    - For semantic analysis, chunk the context and query sub-LLMs with the ACTUAL TEXT
+    - Use variables as buffers to accumulate results across chunks
     - DO NOT redefine the `context` variable - it's already set!
+
+    Example - chunking and querying sub-LLMs (include actual text!):
+    ```python
+    # Split context into chunks and query sub-LLM about each
+    chunk_size = 50000  # Sub-LLM can handle ~500K chars
+    chunks = [context[i:i+chunk_size] for i in range(0, len(context), chunk_size)]
+
+    # Query sub-LLM with actual chunk content in the prompt
+    results = []
+    for chunk in chunks:
+        # IMPORTANT: Include the actual chunk text in the prompt!
+        answer = llm_query(f"Find mentions of X in this text. Return count only.\\n\\n{chunk}")
+        results.append(answer)
+
+    # Or use llm_batch for concurrent processing (faster):
+    prompts = [f"Find X in:\\n{chunk}" for chunk in chunks]
+    results = llm_batch(prompts)
+    ```
 
     When you have the final answer, use ONE of these patterns:
     1. FINAL(your_answer) - call the FINAL function with your answer
     2. print(f'FINAL({your_answer})') - print the final answer
-    3. answer['content'] = result; answer['ready'] = True - use the answer dict
 
-    Think step by step. Explore first, then analyze, then provide your final answer.
+    Think step by step. EXPLORE the context first, then analyze, then provide your final answer.
 """).strip()
 
 
@@ -75,8 +96,12 @@ RLM_SYSTEM_PROMPT_COMPACT = textwrap.dedent("""
 """).strip()
 
 
-# Initial user prompt template
+# Initial user prompt template (includes first iteration safeguard)
 USER_PROMPT_INITIAL = textwrap.dedent("""
+    IMPORTANT: You have not interacted with the REPL environment yet. Your first action
+    should be to explore the context to understand its structure - don't provide a final
+    answer until you've looked through the data!
+
     Task: {task_prompt}
 
     Context ({context_length} chars):
@@ -85,11 +110,12 @@ USER_PROMPT_INITIAL = textwrap.dedent("""
     Available variables: {variables}
 
     Think step-by-step:
-    1. First explore the context to understand its structure
-    2. Analyze the data to solve the task
-    3. Provide your final answer with FINAL(answer)
+    1. FIRST: Explore the context structure (print samples, check format)
+    2. THEN: Analyze the data to solve the task
+    3. FINALLY: Provide your answer with FINAL(answer)
 
-    Write Python code in ```python``` blocks.
+    Write Python code in ```python``` blocks. Execute code NOW - don't just describe what
+    you would do!
 """).strip()
 
 
@@ -100,11 +126,12 @@ USER_PROMPT_CONTINUE = textwrap.dedent("""
     {error_section}
     Variables: {variables}
 
-    Continue solving the task. Write more code or provide FINAL(answer).
+    Continue solving the task. Remember: if you haven't fully explored the context yet,
+    do that before providing FINAL(answer).
 """).strip()
 
 
-# First iteration safeguard (from official RLM)
+# First iteration safeguard (from official RLM) - now integrated into USER_PROMPT_INITIAL
 FIRST_ITERATION_SAFEGUARD = (
     "You have not explored the context yet. "
     "First look through it to understand the data before providing a final answer."

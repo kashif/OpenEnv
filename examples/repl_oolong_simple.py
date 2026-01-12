@@ -14,6 +14,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from repl_env import REPLEnv
+from repl_env.server.repl_environment import REPLEnvironment
+from repl_env.models import REPLAction
 from repl_env.prompts import (
     RLM_SYSTEM_PROMPT,
     build_initial_prompt,
@@ -22,6 +24,7 @@ from repl_env.prompts import (
 )
 
 # ============== CONFIGURATION ==============
+# Set to None to run locally, or a URL to connect to remote Space
 SPACE_URL = "https://sergiopaniego-repl.hf.space"
 MODEL_NAME = "Qwen/Qwen3-1.7B"
 DATASET_SUBSET = "toy_dnd"
@@ -64,102 +67,131 @@ def main():
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=False,
+            enable_thinking=True,  # Enable Qwen3 thinking mode for better reasoning
         )
         inputs = tokenizer([text], return_tensors="pt").to(model.device)
+        # Use generate with proper sampling - thinking mode needs more tokens
         outputs = model.generate(
             **inputs,
-            max_new_tokens=1024,
-            temperature=0.7,
+            max_new_tokens=2048,  # Increased for thinking mode
             do_sample=True,
+            top_k=50,
+            top_p=0.9,
         )
         return tokenizer.decode(outputs[0][len(inputs.input_ids[0]):], skip_special_tokens=True)
 
-    # Build task prompt - emphasize llm_query and llm_batch availability
-    task_prompt = f"""Answer the following question based on the context provided.
+    # Build task prompt - keep it simple since system prompt has detailed instructions
+    task_prompt = f"""Answer the following question about the context.
 
 Question: {question}
 
-Instructions:
-- The context is available in the 'context' variable (a string with {len(context):,} chars)
-- You have access to llm_query(prompt) to ask the LLM questions about text chunks
-- You have access to llm_batch(prompts_list) to process multiple prompts efficiently
-- Strategy: Split the context into manageable chunks and use llm_query/llm_batch to analyze them
-- When you find the answer, use: print(f'FINAL(your_answer)')
-
-Example approach:
-```python
-# Split context into chunks
-chunks = [context[i:i+5000] for i in range(0, len(context), 5000)]
-
-# Ask LLM to count something in each chunk
-results = llm_batch([f"Count X in this text: {{chunk}}" for chunk in chunks])
-
-# Aggregate results
-total = sum(extract_number(r) for r in results)
-print(f'FINAL({{total}})')
-```
+The context ({len(context):,} chars) appears to be a D&D game transcript. Explore it first
+to understand how dice rolls are represented, then count them accurately.
 """
 
-    # Connect to REPL Space (which now has llm_query/llm_batch via HF Inference API)
-    print(f"\nConnecting to: {SPACE_URL}")
-    print("Note: The Space now has llm_query/llm_batch enabled via HF Inference API")
-    
-    with REPLEnv(base_url=SPACE_URL) as env:
-        # Reset with context
+    # Create environment (local or remote)
+    if SPACE_URL:
+        print(f"\nConnecting to: {SPACE_URL}")
+        print("Note: The Space now has llm_query/llm_batch enabled via HF Inference API")
+        env = REPLEnv(base_url=SPACE_URL)
         result = env.reset(context=context, task_prompt=task_prompt, max_iterations=MAX_ITERATIONS)
         obs = result.observation
+        context_length = obs.context_length
+        available_vars = obs.available_variables
+        use_client = True
+    else:
+        print("\nRunning locally with REPLEnvironment")
+        # Create local environment with llm_query using the same model
+        def local_llm_query(prompt: str) -> str:
+            """Use the local model for llm_query calls."""
+            msgs = [{"role": "user", "content": prompt}]
+            return llm_chat(msgs)
 
-        print(f"Context loaded: {obs.context_length:,} chars")
-        print(f"Available variables: {obs.available_variables}")
+        def local_llm_batch(prompts: list[str]) -> list[str]:
+            """Process multiple prompts sequentially."""
+            return [local_llm_query(p) for p in prompts]
 
-        # Build initial messages
-        messages = [
-            {"role": "system", "content": RLM_SYSTEM_PROMPT},
-            {"role": "user", "content": build_initial_prompt(
-                task_prompt=task_prompt,
-                context_length=obs.context_length,
-                context_preview=obs.context_preview,
-                variables=obs.available_variables,
-            )},
-        ]
+        env = REPLEnvironment(
+            context=context,
+            task_prompt=task_prompt,
+            max_iterations=MAX_ITERATIONS,
+            llm_query_fn=local_llm_query,
+            llm_batch_fn=local_llm_batch,
+        )
+        obs = env.reset()
+        context_length = len(context)
+        available_vars = ['context', 'answer', 'llm_query', 'llm_batch', 'FINAL']
+        use_client = False
 
-        # RLM loop
-        final_answer = None
-        for i in range(1, MAX_ITERATIONS + 1):
-            print(f"\n--- Iteration {i} ---")
+    print(f"Context loaded: {context_length:,} chars")
+    print(f"Available variables: {available_vars}")
 
-            response = llm_chat(messages)
-            print(f"LLM: {response[:400]}{'...' if len(response) > 400 else ''}")
+    # Build initial messages
+    context_preview = context[:500] + "..." if len(context) > 500 else context
+    messages = [
+        {"role": "system", "content": RLM_SYSTEM_PROMPT},
+        {"role": "user", "content": build_initial_prompt(
+            task_prompt=task_prompt,
+            context_length=context_length,
+            context_preview=context_preview,
+            variables=available_vars,
+        )},
+    ]
 
-            code_blocks = extract_code_blocks(response)
-            if not code_blocks:
-                messages.append({"role": "assistant", "content": response})
-                messages.append({"role": "user", "content": "Please provide Python code in ```python``` blocks."})
-                continue
+    # RLM loop
+    final_answer = None
+    for i in range(1, MAX_ITERATIONS + 1):
+        print(f"\n--- Iteration {i} ---")
 
-            for code in code_blocks:
-                print(f"\nExecuting:\n{code[:300]}{'...' if len(code) > 300 else ''}")
+        response = llm_chat(messages)
+        print(f"LLM: {response[:400]}{'...' if len(response) > 400 else ''}")
 
+        code_blocks = extract_code_blocks(response)
+        if not code_blocks:
+            messages.append({"role": "assistant", "content": response})
+            messages.append({"role": "user", "content": "Please provide Python code in ```python``` blocks."})
+            continue
+
+        for code in code_blocks:
+            print(f"\nExecuting:\n{code[:300]}{'...' if len(code) > 300 else ''}")
+
+            # Execute code (different API for local vs remote)
+            if use_client:
                 result = env.execute(code)
                 obs = result.observation
-
-                print(f"Success: {obs.result.success}")
-                if obs.result.stdout:
-                    print(f"Output: {obs.result.stdout[:300]}{'...' if len(obs.result.stdout) > 300 else ''}")
-                if obs.result.stderr:
-                    print(f"Stderr: {obs.result.stderr[:200]}")
-
-                if result.done:
+                success = obs.result.success
+                stdout = obs.result.stdout
+                stderr = obs.result.stderr
+                done = result.done
+                if done:
                     state = env.state()
                     final_answer = state.final_answer if state else obs.metadata.get("final_answer")
-                    break
+            else:
+                obs = env.step(REPLAction(code=code))
+                success = obs.result.success
+                stdout = obs.result.stdout
+                stderr = obs.result.exception or ""
+                done = obs.done
+                if done:
+                    final_answer = obs.metadata.get("final_answer")
 
-            if final_answer is not None:
+            print(f"Success: {success}")
+            if stdout:
+                print(f"Output: {stdout[:300]}{'...' if len(stdout) > 300 else ''}")
+            if stderr:
+                print(f"Stderr: {stderr[:200]}")
+
+            if done:
                 break
 
-            messages.append({"role": "assistant", "content": response})
-            messages.append({"role": "user", "content": format_observation(obs)})
+        if final_answer is not None:
+            break
+
+        messages.append({"role": "assistant", "content": response})
+        messages.append({"role": "user", "content": format_observation(obs)})
+
+    # Cleanup
+    env.close()
 
     # Results
     print("\n" + "=" * 60)
