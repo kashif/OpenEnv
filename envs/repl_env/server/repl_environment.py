@@ -168,10 +168,12 @@ class REPLEnvironment(Environment):
             self._executor.set_context(effective_context)
 
         # Inject LLM functions if provided
+        # Names: llm_query (single), llm_query_batched (official RLM), llm_batch (alias)
         if self.llm_query_fn:
             self._executor.inject_function("llm_query", self.llm_query_fn)
         if self.llm_batch_fn:
-            self._executor.inject_function("llm_batch", self.llm_batch_fn)
+            self._executor.inject_function("llm_query_batched", self.llm_batch_fn)  # Official name
+            self._executor.inject_function("llm_batch", self.llm_batch_fn)  # Alias
 
         # Inject FINAL helper function so both FINAL(x) and print(f'FINAL({x})') work
         # Returns the FINAL pattern as a string so it appears in stdout for detection

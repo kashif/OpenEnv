@@ -24,8 +24,10 @@ HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
 from repl_env import REPLEnv
 from repl_env.prompts import (
-    RLM_SYSTEM_PROMPT,
-    build_initial_prompt,
+    RLM_SYSTEM_PROMPT_QWEN,  # Use Qwen version (with cost warning)
+    QueryMetadata,
+    build_rlm_system_prompt,
+    build_user_prompt,
     extract_code_blocks,
     format_observation,
 )
@@ -33,11 +35,11 @@ from repl_env.prompts import (
 # ============== CONFIGURATION ==============
 # Set to None to run locally, or a URL to connect to remote Space
 SPACE_URL = "https://sergiopaniego-repl.hf.space"
-MODEL_NAME = "Qwen/Qwen3-1.7B"
+MODEL_NAME = "Qwen/Qwen3-Coder-480B-A35B-Instruct"
 DATASET_SUBSET = "toy_dnd"
 DATASET_SPLIT = "validation"
 EXAMPLE_INDEX = 0
-MAX_ITERATIONS = 15
+MAX_ITERATIONS = 30  # Paper uses 30
 # ===========================================
 
 
@@ -77,14 +79,8 @@ def main():
         )
         return response.choices[0].message.content
 
-    # Build task prompt
-    task_prompt = f"""Answer the following question about the context.
-
-Question: {question}
-
-The context ({len(context):,} chars) appears to be a D&D game transcript. Explore it first
-to understand how dice rolls are represented, then count them accurately.
-"""
+    # Build task prompt (just the question, as per official RLM)
+    task_prompt = question
 
     # Create environment - unified API for both local and remote!
     if SPACE_URL:
@@ -92,7 +88,7 @@ to understand how dice rolls are represented, then count them accurately.
         env = REPLEnv(base_url=SPACE_URL)
     else:
         print("\nRunning locally")
-        # For local mode, provide LLM functions for llm_query/llm_batch support
+        # For local mode, provide LLM functions for llm_query/llm_query_batched support
         def local_llm_query(prompt: str) -> str:
             return llm_chat([{"role": "user", "content": prompt}])
 
@@ -108,17 +104,18 @@ to understand how dice rolls are represented, then count them accurately.
     print(f"Context loaded: {obs.context_length:,} chars")
     print(f"Available variables: {obs.available_variables}")
 
-    # Build initial messages for the agent
-    context_preview = context[:500] + "..." if len(context) > 500 else context
-    messages = [
-        {"role": "system", "content": RLM_SYSTEM_PROMPT},
-        {"role": "user", "content": build_initial_prompt(
-            task_prompt=task_prompt,
-            context_length=obs.context_length,
-            context_preview=context_preview,
-            variables=obs.available_variables,
-        )},
-    ]
+    # Build initial messages (official RLM style):
+    # 1. System prompt
+    # 2. Assistant message with context metadata
+    # 3. User prompt with safeguard
+    query_metadata = QueryMetadata(
+        context_lengths=[obs.context_length],
+        context_total_length=obs.context_length,
+        context_type="str",
+    )
+
+    messages = build_rlm_system_prompt(RLM_SYSTEM_PROMPT_QWEN, query_metadata)
+    messages.append(build_user_prompt(root_prompt=task_prompt, iteration=0))
 
     # RLM loop
     final_answer = None
@@ -131,7 +128,7 @@ to understand how dice rolls are represented, then count them accurately.
         code_blocks = extract_code_blocks(response)
         if not code_blocks:
             messages.append({"role": "assistant", "content": response})
-            messages.append({"role": "user", "content": "Please provide Python code in ```python``` blocks."})
+            messages.append({"role": "user", "content": "Please provide code in ```repl``` blocks."})
             continue
 
         for code in code_blocks:
@@ -155,8 +152,11 @@ to understand how dice rolls are represented, then count them accurately.
         if final_answer is not None:
             break
 
+        # Add assistant response and observation + next user prompt
         messages.append({"role": "assistant", "content": response})
-        messages.append({"role": "user", "content": format_observation(obs)})
+        observation_text = format_observation(obs)
+        next_prompt = build_user_prompt(root_prompt=task_prompt, iteration=i)
+        messages.append({"role": "user", "content": observation_text + "\n\n" + next_prompt["content"]})
 
     # Cleanup
     env.close()
