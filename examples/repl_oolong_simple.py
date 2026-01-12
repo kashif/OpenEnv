@@ -2,10 +2,14 @@
 """
 Simple REPL + Oolong example with recursive LLM calls (RLM paradigm).
 
-This connects to the REPL Space which has llm_query and llm_batch enabled
-via HuggingFace Inference API.
+Demonstrates the unified REPLEnv API that works with both remote servers
+and local execution using the same interface.
 
 Usage:
+    # Run against remote server
+    python examples/repl_oolong_simple.py
+
+    # Run locally (set SPACE_URL = None in the script)
     python examples/repl_oolong_simple.py
 """
 from __future__ import annotations
@@ -14,8 +18,6 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from repl_env import REPLEnv
-from repl_env.server.repl_environment import REPLEnvironment
-from repl_env.models import REPLAction
 from repl_env.prompts import (
     RLM_SYSTEM_PROMPT,
     build_initial_prompt,
@@ -70,7 +72,6 @@ def main():
             enable_thinking=True,  # Enable Qwen3 thinking mode for better reasoning
         )
         inputs = tokenizer([text], return_tensors="pt").to(model.device)
-        # Use generate with proper sampling - thinking mode needs more tokens
         outputs = model.generate(
             **inputs,
             max_new_tokens=2048,  # Increased for thinking mode
@@ -80,7 +81,7 @@ def main():
         )
         return tokenizer.decode(outputs[0][len(inputs.input_ids[0]):], skip_special_tokens=True)
 
-    # Build task prompt - keep it simple since system prompt has detailed instructions
+    # Build task prompt
     task_prompt = f"""Answer the following question about the context.
 
 Question: {question}
@@ -89,52 +90,37 @@ The context ({len(context):,} chars) appears to be a D&D game transcript. Explor
 to understand how dice rolls are represented, then count them accurately.
 """
 
-    # Create environment (local or remote)
+    # Create environment - unified API for both local and remote!
     if SPACE_URL:
         print(f"\nConnecting to: {SPACE_URL}")
-        print("Note: The Space now has llm_query/llm_batch enabled via HF Inference API")
         env = REPLEnv(base_url=SPACE_URL)
-        result = env.reset(context=context, task_prompt=task_prompt, max_iterations=MAX_ITERATIONS)
-        obs = result.observation
-        context_length = obs.context_length
-        available_vars = obs.available_variables
-        use_client = True
     else:
-        print("\nRunning locally with REPLEnvironment")
-        # Create local environment with llm_query using the same model
+        print("\nRunning locally")
+        # For local mode, provide LLM functions for llm_query/llm_batch support
         def local_llm_query(prompt: str) -> str:
-            """Use the local model for llm_query calls."""
-            msgs = [{"role": "user", "content": prompt}]
-            return llm_chat(msgs)
+            return llm_chat([{"role": "user", "content": prompt}])
 
         def local_llm_batch(prompts: list[str]) -> list[str]:
-            """Process multiple prompts sequentially."""
             return [local_llm_query(p) for p in prompts]
 
-        env = REPLEnvironment(
-            context=context,
-            task_prompt=task_prompt,
-            max_iterations=MAX_ITERATIONS,
-            llm_query_fn=local_llm_query,
-            llm_batch_fn=local_llm_batch,
-        )
-        obs = env.reset()
-        context_length = len(context)
-        available_vars = ['context', 'answer', 'llm_query', 'llm_batch', 'FINAL']
-        use_client = False
+        env = REPLEnv(llm_query_fn=local_llm_query, llm_batch_fn=local_llm_batch)
 
-    print(f"Context loaded: {context_length:,} chars")
-    print(f"Available variables: {available_vars}")
+    # Reset environment - same API for both local and remote
+    result = env.reset(context=context, task_prompt=task_prompt, max_iterations=MAX_ITERATIONS)
+    obs = result.observation
 
-    # Build initial messages
+    print(f"Context loaded: {obs.context_length:,} chars")
+    print(f"Available variables: {obs.available_variables}")
+
+    # Build initial messages for the agent
     context_preview = context[:500] + "..." if len(context) > 500 else context
     messages = [
         {"role": "system", "content": RLM_SYSTEM_PROMPT},
         {"role": "user", "content": build_initial_prompt(
             task_prompt=task_prompt,
-            context_length=context_length,
+            context_length=obs.context_length,
             context_preview=context_preview,
-            variables=available_vars,
+            variables=obs.available_variables,
         )},
     ]
 
@@ -155,33 +141,19 @@ to understand how dice rolls are represented, then count them accurately.
         for code in code_blocks:
             print(f"\nExecuting:\n{code[:300]}{'...' if len(code) > 300 else ''}")
 
-            # Execute code (different API for local vs remote)
-            if use_client:
-                result = env.execute(code)
-                obs = result.observation
-                success = obs.result.success
-                stdout = obs.result.stdout
-                stderr = obs.result.stderr
-                done = result.done
-                if done:
-                    state = env.state()
-                    final_answer = state.final_answer if state else obs.metadata.get("final_answer")
-            else:
-                obs = env.step(REPLAction(code=code))
-                success = obs.result.success
-                stdout = obs.result.stdout
-                stderr = obs.result.exception or ""
-                done = obs.done
-                if done:
-                    final_answer = obs.metadata.get("final_answer")
+            # Execute code - same API for both local and remote!
+            result = env.execute(code)
+            obs = result.observation
 
-            print(f"Success: {success}")
-            if stdout:
-                print(f"Output: {stdout[:300]}{'...' if len(stdout) > 300 else ''}")
-            if stderr:
-                print(f"Stderr: {stderr[:200]}")
+            print(f"Success: {obs.result.success}")
+            if obs.result.stdout:
+                print(f"Output: {obs.result.stdout[:300]}{'...' if len(obs.result.stdout) > 300 else ''}")
+            if obs.result.stderr:
+                print(f"Stderr: {obs.result.stderr[:200]}")
 
-            if done:
+            if result.done:
+                state = env.state()
+                final_answer = state.final_answer
                 break
 
         if final_answer is not None:
