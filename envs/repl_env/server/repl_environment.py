@@ -183,6 +183,15 @@ class REPLEnvironment(Environment):
 
         self._executor.inject_function("FINAL", final_helper)
 
+        # Inject FINAL_VAR helper so FINAL_VAR(var_name) works as described in prompts
+        # Note: var_name should be passed as a STRING, e.g., FINAL_VAR("my_var")
+        # The actual variable lookup happens in _check_finalization via namespace
+        def final_var_helper(var_name: str):
+            """Helper that returns FINAL_VAR(var_name) string for detection."""
+            return f"FINAL_VAR({var_name})"
+
+        self._executor.inject_function("FINAL_VAR", final_var_helper)
+
         # Update namespace keys
         self._state.namespace_keys = self._executor.list_variables()
 
