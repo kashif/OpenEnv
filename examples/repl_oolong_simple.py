@@ -14,8 +14,13 @@ Usage:
 """
 from __future__ import annotations
 
+import os
+
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import InferenceClient
+
+# HuggingFace token for Inference API
+HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
 from repl_env import REPLEnv
 from repl_env.prompts import (
@@ -55,31 +60,22 @@ def main():
     print(f"Context length: {len(context):,} chars")
 
     # Load model for the outer loop (agent)
-    print(f"\nLoading model: {MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        torch_dtype="auto",
-        device_map="auto",
+    client = InferenceClient(
+        model=MODEL_NAME,
+        token=HF_TOKEN,
     )
 
     def llm_chat(messages: list[dict]) -> str:
-        """LLM function for chat-style messages (outer loop)."""
-        text = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=True,  # Enable Qwen3 thinking mode for better reasoning
+        """
+        LLM function for chat-style messages (outer loop),
+        using HF Inference Providers.
+        """
+        response = client.chat.completions.create(
+            messages=messages,
+            max_tokens=2048,  # Increased for longer code responses
+            temperature=0.7,
         )
-        inputs = tokenizer([text], return_tensors="pt").to(model.device)
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=2048,  # Increased for thinking mode
-            do_sample=True,
-            top_k=50,
-            top_p=0.9,
-        )
-        return tokenizer.decode(outputs[0][len(inputs.input_ids[0]):], skip_special_tokens=True)
+        return response.choices[0].message.content
 
     # Build task prompt
     task_prompt = f"""Answer the following question about the context.
