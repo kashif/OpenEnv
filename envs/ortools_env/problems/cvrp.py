@@ -20,7 +20,7 @@ import random
 NAME = "cvrp"
 
 # Number of customers (the depot is node 0 on top of these).
-SIZES = {"n100": 100, "n200": 200, "n400": 400, "n1000": 1000}
+SIZES = {"n20": 20, "n100": 100, "n200": 200, "n400": 400, "n1000": 1000}
 DEFAULT_SIZE = "n200"
 
 STATEMENT = """\
@@ -40,17 +40,26 @@ Objective: the sum of the route lengths, each including the legs from and back t
 def generate(seed: int, size: str = DEFAULT_SIZE) -> dict:
     rng = random.Random(seed)
     num_customers = SIZES[size]
-    depot = rng.choice([(500, 500), (0, 0), (rng.randint(0, 1000), rng.randint(0, 1000))])
+    depot = rng.choice(
+        [(500, 500), (0, 0), (rng.randint(0, 1000), rng.randint(0, 1000))]
+    )
     positioning = rng.choice(["random", "clustered", "random-clustered"])
 
     coords = []
     if positioning != "random":
-        seeds = [(rng.randint(0, 1000), rng.randint(0, 1000)) for _ in range(rng.randint(3, 8))]
-        num_clustered = num_customers if positioning == "clustered" else num_customers // 2
+        seeds = [
+            (rng.randint(0, 1000), rng.randint(0, 1000))
+            for _ in range(rng.randint(3, 8))
+        ]
+        num_clustered = (
+            num_customers if positioning == "clustered" else num_customers // 2
+        )
         while len(coords) < num_clustered:
             # Each point is accepted with a probability that decays exponentially with its distance to a cluster seed.
             x, y = rng.randint(0, 1000), rng.randint(0, 1000)
-            if rng.random() < max(math.exp(-math.hypot(x - sx, y - sy) / 40) for sx, sy in seeds):
+            if rng.random() < max(
+                math.exp(-math.hypot(x - sx, y - sy) / 40) for sx, sy in seeds
+            ):
                 coords.append((x, y))
     while len(coords) < num_customers:
         coords.append((rng.randint(0, 1000), rng.randint(0, 1000)))
@@ -63,10 +72,19 @@ def generate(seed: int, size: str = DEFAULT_SIZE) -> dict:
     elif demand_type == "large":
         demands = [rng.randint(50, 100) for _ in range(num_customers)]
     else:  # many small demands and a few large ones
-        demands = [rng.randint(50, 100) if rng.random() < 0.15 else rng.randint(1, 10) for _ in range(num_customers)]
+        demands = [
+            rng.randint(50, 100) if rng.random() < 0.15 else rng.randint(1, 10)
+            for _ in range(num_customers)
+        ]
     customers_per_route = rng.uniform(3, 25)
-    capacity = max(max(demands), math.ceil(customers_per_route * sum(demands) / num_customers))
-    return {"capacity": capacity, "coords": [list(depot)] + [list(c) for c in coords], "demands": [0] + demands}
+    capacity = max(
+        max(demands), math.ceil(customers_per_route * sum(demands) / num_customers)
+    )
+    return {
+        "capacity": capacity,
+        "coords": [list(depot)] + [list(c) for c in coords],
+        "demands": [0] + demands,
+    }
 
 
 def load(path: str) -> dict:
@@ -87,7 +105,10 @@ def load(path: str) -> dict:
             sections[current].append(line.split())
     if header.get("EDGE_WEIGHT_TYPE") != "EUC_2D":
         raise ValueError("Only EUC_2D instances are supported.")
-    coords = {int(row[0]): [float(row[1]), float(row[2])] for row in sections["NODE_COORD_SECTION"]}
+    coords = {
+        int(row[0]): [float(row[1]), float(row[2])]
+        for row in sections["NODE_COORD_SECTION"]
+    }
     demands = {int(row[0]): int(row[1]) for row in sections["DEMAND_SECTION"]}
     depot = int(sections["DEPOT_SECTION"][0][0])
     order = [depot] + [node for node in sorted(coords) if node != depot]
@@ -104,7 +125,11 @@ def _distance(coords: list, i: int, j: int) -> int:
 
 def evaluate(instance: dict, solution: dict) -> int:
     """Return the total distance of `solution`; raise `ValueError` if it is malformed or infeasible."""
-    coords, demands, capacity = instance["coords"], instance["demands"], instance["capacity"]
+    coords, demands, capacity = (
+        instance["coords"],
+        instance["demands"],
+        instance["capacity"],
+    )
     num_nodes = len(coords)
     seen = set()
     total = 0
@@ -127,31 +152,47 @@ def evaluate(instance: dict, solution: dict) -> int:
     return total
 
 
-def reference(instance: dict, time_limit: float, num_workers: int = 8) -> tuple[dict, int, None]:
+def reference(
+    instance: dict, time_limit: float, num_workers: int = 8
+) -> tuple[dict, int, None]:
     """Solve with the OR-Tools routing solver (guided local search); return `(solution, objective, None)`."""
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
-    coords, demands, capacity = instance["coords"], instance["demands"], instance["capacity"]
+    coords, demands, capacity = (
+        instance["coords"],
+        instance["demands"],
+        instance["capacity"],
+    )
     num_nodes = len(coords)
     # Unused vehicles cost nothing, so give the solver enough slack over the bin-packing bound.
     num_vehicles = 2 * math.ceil(sum(demands) / capacity) + 2
     manager = pywrapcp.RoutingIndexManager(num_nodes, num_vehicles, 0)
     routing = pywrapcp.RoutingModel(manager)
-    matrix = [[_distance(coords, i, j) for j in range(num_nodes)] for i in range(num_nodes)]
+    matrix = [
+        [_distance(coords, i, j) for j in range(num_nodes)] for i in range(num_nodes)
+    ]
     transit = routing.RegisterTransitCallback(
         lambda a, b: matrix[manager.IndexToNode(a)][manager.IndexToNode(b)]
     )
     routing.SetArcCostEvaluatorOfAllVehicles(transit)
-    demand = routing.RegisterUnaryTransitCallback(lambda a: demands[manager.IndexToNode(a)])
-    routing.AddDimensionWithVehicleCapacity(demand, 0, [capacity] * num_vehicles, True, "load")
+    demand = routing.RegisterUnaryTransitCallback(
+        lambda a: demands[manager.IndexToNode(a)]
+    )
+    routing.AddDimensionWithVehicleCapacity(
+        demand, 0, [capacity] * num_vehicles, True, "load"
+    )
 
     params = pywrapcp.DefaultRoutingSearchParameters()
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.SAVINGS
-    params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    params.local_search_metaheuristic = (
+        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    )
     params.time_limit.FromMilliseconds(int(time_limit * 1000))
     assignment = routing.SolveWithParameters(params)
     if assignment is None:
-        raise RuntimeError(f"The routing solver found no solution within {time_limit}s.")
+        raise RuntimeError(
+            f"The routing solver found no solution within {time_limit}s."
+        )
     routes = []
     for v in range(num_vehicles):
         index = assignment.Value(routing.NextVar(routing.Start(v)))

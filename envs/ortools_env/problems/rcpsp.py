@@ -18,7 +18,7 @@ import random
 
 NAME = "rcpsp"
 
-SIZES = {"j30": 30, "j60": 60, "j120": 120, "j300": 300}
+SIZES = {"j10": 10, "j30": 30, "j60": 60, "j120": 120, "j300": 300}
 DEFAULT_SIZE = "j120"
 
 STATEMENT = """\
@@ -55,8 +55,12 @@ def generate(seed: int, size: str = DEFAULT_SIZE) -> dict:
     durations = [rng.randint(1, 10) for _ in range(num_tasks)]
     demands = []
     for _ in range(num_tasks):
-        used = [r for r in range(num_resources) if rng.random() < resource_factor] or [rng.randrange(num_resources)]
-        demands.append([rng.randint(1, 10) if r in used else 0 for r in range(num_resources)])
+        used = [r for r in range(num_resources) if rng.random() < resource_factor] or [
+            rng.randrange(num_resources)
+        ]
+        demands.append(
+            [rng.randint(1, 10) if r in used else 0 for r in range(num_resources)]
+        )
 
     # Capacities from the resource strength: K = Kmin + RS * (Kmax - Kmin), where Kmin is the largest single demand
     # and Kmax the peak usage of the earliest-start (resource-unconstrained) schedule.
@@ -75,7 +79,12 @@ def generate(seed: int, size: str = DEFAULT_SIZE) -> dict:
         capacities.append(k_min + round(resource_strength * (max(usage) - k_min)))
 
     tasks = [
-        {"duration": durations[i], "demands": demands[i], "successors": sorted(successors[i])} for i in range(num_tasks)
+        {
+            "duration": durations[i],
+            "demands": demands[i],
+            "successors": sorted(successors[i]),
+        }
+        for i in range(num_tasks)
     ]
     return {"capacities": capacities, "tasks": tasks}
 
@@ -99,8 +108,13 @@ def load(path: str) -> dict:
         for demand, resource in zip(recipe.demands, recipe.resources):
             demands[resource] = demand
         successors = [s - 1 for s in problem.tasks[t].successors if s in real]
-        tasks.append({"duration": recipe.duration, "demands": demands, "successors": successors})
-    return {"capacities": [resource.max_capacity for resource in problem.resources], "tasks": tasks}
+        tasks.append(
+            {"duration": recipe.duration, "demands": demands, "successors": successors}
+        )
+    return {
+        "capacities": [resource.max_capacity for resource in problem.resources],
+        "tasks": tasks,
+    }
 
 
 def evaluate(instance: dict, solution: dict) -> int:
@@ -111,11 +125,15 @@ def evaluate(instance: dict, solution: dict) -> int:
         raise ValueError(f"`starts` must have {len(tasks)} entries, got {len(starts)}.")
     for i, start in enumerate(starts):
         if not isinstance(start, int) or start < 0:
-            raise ValueError(f"Start of activity {i} must be a non-negative integer, got {start!r}.")
+            raise ValueError(
+                f"Start of activity {i} must be a non-negative integer, got {start!r}."
+            )
     for i, task in enumerate(tasks):
         for s in task["successors"]:
             if starts[s] < starts[i] + task["duration"]:
-                raise ValueError(f"Activity {s} starts before its predecessor {i} ends.")
+                raise ValueError(
+                    f"Activity {s} starts before its predecessor {i} ends."
+                )
     # Sweep over start/end events; ends sort before starts at the same time since intervals are half-open.
     events = []
     for i, task in enumerate(tasks):
@@ -132,7 +150,9 @@ def evaluate(instance: dict, solution: dict) -> int:
     return max(starts[i] + task["duration"] for i, task in enumerate(tasks))
 
 
-def reference(instance: dict, time_limit: float, num_workers: int = 8) -> tuple[dict, int, int]:
+def reference(
+    instance: dict, time_limit: float, num_workers: int = 8
+) -> tuple[dict, int, int]:
     """Solve with CP-SAT; return `(solution, objective, lower_bound)`."""
     from ortools.sat.python import cp_model
 
@@ -143,14 +163,18 @@ def reference(instance: dict, time_limit: float, num_workers: int = 8) -> tuple[
     for i, task in enumerate(tasks):
         start = model.new_int_var(0, horizon, f"start_{i}")
         end = model.new_int_var(0, horizon, f"end_{i}")
-        intervals.append(model.new_interval_var(start, task["duration"], end, f"interval_{i}"))
+        intervals.append(
+            model.new_interval_var(start, task["duration"], end, f"interval_{i}")
+        )
         starts.append(start)
         ends.append(end)
     for i, task in enumerate(tasks):
         for s in task["successors"]:
             model.add(starts[s] >= ends[i])
     for r, capacity in enumerate(instance["capacities"]):
-        model.add_cumulative(intervals, [task["demands"][r] for task in tasks], capacity)
+        model.add_cumulative(
+            intervals, [task["demands"][r] for task in tasks], capacity
+        )
     makespan = model.new_int_var(0, horizon, "makespan")
     model.add_max_equality(makespan, ends)
     model.minimize(makespan)
@@ -161,4 +185,8 @@ def reference(instance: dict, time_limit: float, num_workers: int = 8) -> tuple[
     status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise RuntimeError(f"CP-SAT found no solution within {time_limit}s.")
-    return {"starts": [solver.value(s) for s in starts]}, int(solver.objective_value), int(solver.best_objective_bound)
+    return (
+        {"starts": [solver.value(s) for s in starts]},
+        int(solver.objective_value),
+        int(solver.best_objective_bound),
+    )

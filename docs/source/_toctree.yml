@@ -155,6 +155,8 @@
     title: Pelican SVG
   - local: environments/sophistry_bench_sprint
     title: Sophistry Bench Sprint
+  - local: environments/ortools
+    title: OR-Tools
   title: Environments
 - isExpanded: false
   sections:

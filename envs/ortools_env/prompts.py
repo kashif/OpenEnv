@@ -19,8 +19,17 @@ import json
 MAX_INLINE_INSTANCE_CHARS = 20000
 
 
-def task_prompt(module, level: int, size: str, instance: dict, solve_time_limit_s: float, allow_ortools: bool) -> str:
-    libraries = "the Python standard library, numpy and scipy" + (" and OR-Tools (`ortools`)" if allow_ortools else "")
+def task_prompt(
+    module,
+    level: int,
+    size: str,
+    instance: dict,
+    solve_time_limit_s: float,
+    allow_ortools: bool,
+) -> str:
+    libraries = "the Python standard library, numpy and scipy" + (
+        " and OR-Tools (`ortools`)" if allow_ortools else ""
+    )
     parts = [f"# {module.NAME} ({size})", module.STATEMENT]
     if level == 1:
         parts.append(
@@ -42,5 +51,7 @@ def task_prompt(module, level: int, size: str, instance: dict, solve_time_limit_
     if len(text) <= MAX_INLINE_INSTANCE_CHARS:
         parts.append(f"## {name}\n\n```json\n{text}\n```")
     else:
-        parts.append(f"## {name}\n\nThe instance is too large to show here ({len(text)} characters of JSON).")
+        parts.append(
+            f"## {name}\n\nThe instance is too large to show here ({len(text)} characters of JSON)."
+        )
     return "\n\n".join(parts)

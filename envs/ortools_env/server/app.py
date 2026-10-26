@@ -18,8 +18,10 @@ from openenv.core.env_server.mcp_types import CallToolAction, CallToolObservatio
 from openenv.core.env_server.types import Observation
 
 try:
+    from ..models import ORToolsState
     from .ortools_environment import ORToolsEnvironment
 except ImportError:
+    from models import ORToolsState
     from server.ortools_environment import ORToolsEnvironment
 
 app = create_app(
@@ -27,6 +29,7 @@ app = create_app(
     CallToolAction,
     CallToolObservation,
     reset_observation_cls=Observation,
+    state_cls=ORToolsState,
     env_name="ortools_env",
     max_concurrent_envs=int(os.getenv("MAX_CONCURRENT_ENVS", "16")),
 )

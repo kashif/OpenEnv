@@ -9,16 +9,20 @@ OR-Tools Environment - design solutions and algorithms for hard operations resea
 
 Tools: `run_python(code)`, `submit_solution(solution)` (level 1) and `submit_algorithm(code)` (level 2).
 
-Example:
-    >>> from ortools_env import ORToolsEnv
-    >>>
-    >>> with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
-    ...     result = env.reset(problem="rcpsp", size="j120", level=1, seed=0)
-    ...     print(result.observation.metadata["prompt"])
+Examples:
+
+```python
+from ortools_env import ORToolsEnv
+
+with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
+    result = env.reset(problem="rcpsp", size="j120", level=1, seed=0)
+    print(result.observation.metadata["prompt"])
+```
 """
 
 from openenv.core.env_server.mcp_types import CallToolAction, ListToolsAction
 
 from .client import ORToolsEnv
+from .models import ORToolsState
 
-__all__ = ["ORToolsEnv", "CallToolAction", "ListToolsAction"]
+__all__ = ["ORToolsEnv", "ORToolsState", "CallToolAction", "ListToolsAction"]

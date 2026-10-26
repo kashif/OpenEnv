@@ -64,7 +64,21 @@ def run(
     """
     Run `code` with `instance` bound as a global, from `workdir` (where files persist between calls).
 
-    With `solve=True`, `code` must define `solve(instance)`, whose JSON-serializable return value is the solution.
+    Args:
+        code (`str`):
+            Python source to run.
+        instance (`dict`):
+            Instance bound to the global `instance` and written to `instance.json`.
+        workdir (`str`):
+            Working directory of the subprocess.
+        timeout_s (`float`):
+            Wall-clock limit of the subprocess.
+        allow_ortools (`bool`, *optional*, defaults to `False`):
+            Whether `code` may import `ortools`.
+        solve (`bool`, *optional*, defaults to `False`):
+            Whether to call `solve(instance)`, which `code` must define, and return its result as the solution.
+        memory_mb (`int`, *optional*, defaults to `4096`):
+            Address-space limit of the subprocess.
 
     Returns:
         `dict` with keys `output` (combined stdout and stderr, truncated), `elapsed_s`, `timed_out`, `returncode` and,
@@ -82,20 +96,39 @@ def run(
     start = time.monotonic()
     try:
         proc = subprocess.run(
-            [sys.executable, "-I", "-c", _RUNNER, json.dumps(blocked), code_path, "solve" if solve else "run"],
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                _RUNNER,
+                json.dumps(blocked),
+                code_path,
+                "solve" if solve else "run",
+            ],
             cwd=workdir,
             capture_output=True,
             text=True,
             timeout=timeout_s,
             preexec_fn=_limit_memory(memory_mb),
         )
-        output, returncode, timed_out = proc.stdout + proc.stderr, proc.returncode, False
+        output, returncode, timed_out = (
+            proc.stdout + proc.stderr,
+            proc.returncode,
+            False,
+        )
     except subprocess.TimeoutExpired as e:
-        output = (e.stdout or b"").decode(errors="replace") + (e.stderr or b"").decode(errors="replace")
+        output = (e.stdout or b"").decode(errors="replace") + (e.stderr or b"").decode(
+            errors="replace"
+        )
         returncode, timed_out = None, True
     finally:
         os.remove(code_path)
-    result = {"output": output, "elapsed_s": time.monotonic() - start, "timed_out": timed_out, "returncode": returncode}
+    result = {
+        "output": output,
+        "elapsed_s": time.monotonic() - start,
+        "timed_out": timed_out,
+        "returncode": returncode,
+    }
     if len(output) > 8000:
         result["output"] = output[:4000] + "\n... [truncated] ...\n" + output[-4000:]
     if solve:

@@ -20,7 +20,7 @@ import random
 
 NAME = "tardiness"
 
-SIZES = {"n40": 40, "n100": 100, "n200": 200, "n500": 500}
+SIZES = {"n10": 10, "n40": 40, "n100": 100, "n200": 200, "n500": 500}
 DEFAULT_SIZE = "n100"
 
 STATEMENT = """\
@@ -61,7 +61,11 @@ def load(path: str, index: int = 0, n: int | None = None) -> dict:
     with open(path) as f:
         values = [int(x) for x in f.read().split()]
     block = values[3 * n * index : 3 * n * (index + 1)]
-    return {"processing_times": block[:n], "weights": block[n : 2 * n], "due_dates": block[2 * n :]}
+    return {
+        "processing_times": block[:n],
+        "weights": block[n : 2 * n],
+        "due_dates": block[2 * n :],
+    }
 
 
 def evaluate(instance: dict, solution: dict) -> int:
@@ -78,11 +82,17 @@ def evaluate(instance: dict, solution: dict) -> int:
     return total
 
 
-def reference(instance: dict, time_limit: float, num_workers: int = 8) -> tuple[dict, int, int]:
+def reference(
+    instance: dict, time_limit: float, num_workers: int = 8
+) -> tuple[dict, int, int]:
     """Solve with CP-SAT; return `(solution, objective, lower_bound)`."""
     from ortools.sat.python import cp_model
 
-    processing_times, weights, due_dates = instance["processing_times"], instance["weights"], instance["due_dates"]
+    processing_times, weights, due_dates = (
+        instance["processing_times"],
+        instance["weights"],
+        instance["due_dates"],
+    )
     n = len(processing_times)
     horizon = sum(processing_times)
     model = cp_model.CpModel()
@@ -90,8 +100,12 @@ def reference(instance: dict, time_limit: float, num_workers: int = 8) -> tuple[
     for j in range(n):
         start = model.new_int_var(0, horizon - processing_times[j], f"start_{j}")
         end = model.new_int_var(processing_times[j], horizon, f"end_{j}")
-        intervals.append(model.new_interval_var(start, processing_times[j], end, f"interval_{j}"))
-        tardiness = model.new_int_var(0, max(0, horizon - due_dates[j]), f"tardiness_{j}")
+        intervals.append(
+            model.new_interval_var(start, processing_times[j], end, f"interval_{j}")
+        )
+        tardiness = model.new_int_var(
+            0, max(0, horizon - due_dates[j]), f"tardiness_{j}"
+        )
         model.add_max_equality(tardiness, [0, end - due_dates[j]])
         starts.append(start)
         weighted_tardiness.append(weights[j] * tardiness)
