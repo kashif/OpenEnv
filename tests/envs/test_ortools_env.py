@@ -199,3 +199,24 @@ def test_level_2_crashing_algorithm_scores_minus_one():
     )
     assert obs.done
     assert obs.reward == -1.0
+
+
+def test_level_2_algorithm_may_return_numpy_values():
+    env = ORToolsEnvironment()
+    env.reset(
+        problem="tardiness",
+        size="n10",
+        level=2,
+        seed=0,
+        num_eval_instances=1,
+        solve_time_limit_s=10,
+        reference_time_limit_s=5,
+    )
+    code = (
+        "import numpy as np\n"
+        "def solve(instance):\n"
+        "    return {'sequence': np.argsort(instance['due_dates'])}\n"
+    )
+    obs = _call(env, "submit_algorithm", code=code)
+    assert "objective=" in _text(obs)
+    assert obs.reward > -1.0

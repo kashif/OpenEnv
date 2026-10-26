@@ -40,7 +40,7 @@ with open(sys.argv[2]) as f:
 if sys.argv[3] == "solve":
     solution = namespace["solve"](instance)
     with open("solution.json", "w") as f:
-        json.dump(solution, f)
+        json.dump(solution, f, default=lambda o: o.tolist())
 """
 
 

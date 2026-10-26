@@ -33,6 +33,8 @@ may be used. Each route starts and ends at the depot, and the total demand serve
 capacity. Every customer must be visited by exactly one route.
 
 Solution: `{"routes": routes}` where each route is the list of customers it visits in order, without the depot.
+Customers are identified by their integer index `i` in `instance["coords"]` (from 1 to n), not by their
+coordinates: for example `{"routes": [[3, 1], [2, 4, 5]]}`.
 Objective: the sum of the route lengths, each including the legs from and back to the depot. Lower is better.
 """
 
