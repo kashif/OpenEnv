@@ -18,9 +18,11 @@ Every module exposes the same functions:
 All objectives are minimized and non-negative.
 """
 
-from . import cvrp, jobshop, rcpsp, tardiness
+from . import cvrp, jobshop, rcpsp, rostering, tardiness
 
-PROBLEMS = {module.NAME: module for module in (jobshop, rcpsp, cvrp, tardiness)}
+PROBLEMS = {
+    module.NAME: module for module in (jobshop, rcpsp, cvrp, tardiness, rostering)
+}
 
 
 def score(objective: float, reference: float) -> float:

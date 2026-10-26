@@ -38,6 +38,7 @@ design, a loader for the standard file format, a pure-Python verifier, and an OR
 | `rcpsp` | Resource-constrained project scheduling | PSPLIB design (resource factor, resource strength) | `j10` … `j300` | PSPLIB `.sm` | CP-SAT (optimum and bound) |
 | `cvrp` | Capacitated vehicle routing | Uchoa et al. (2017) "X" design | `n20` … `n1000` | CVRPLIB `.vrp` | Routing solver, guided local search |
 | `tardiness` | Single-machine total weighted tardiness | OR-Library (Potts & Van Wassenhove) | `n10` … `n500` | OR-Library `wtN.txt` | CP-SAT (optimum and bound) |
+| `rostering` | Nurse rostering with hard and soft work rules | Rules of `shift_scheduling_sat.py`, random demands and requests | `4x1` … `80x8` (employees x weeks) | — | CP-SAT (optimum and bound) |
 
 The smallest size of each problem is for smoke tests. Every generated instance is reproducible from `(seed, size)`,
 and the generators randomize the structural parameters (resource strength, due-date tightness, depot and customer
@@ -80,7 +81,9 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 
     # `call_tool` returns only the tool text; use `step` to read the reward of the submission.
     result = env.step(
-        CallToolAction(tool_name="submit_solution", arguments={"solution": '{"starts": [...]}'})
+        CallToolAction(
+            tool_name="submit_solution", arguments={"solution": '{"starts": [...]}'}
+        )
     )
     print(result.reward, result.done)
     print(env.state())  # ORToolsState: objective, reference, compute used, ...
@@ -98,7 +101,7 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 
 | Argument | Default | Description |
 |---|---|---|
-| `problem` | `"jobshop"` | `jobshop`, `rcpsp`, `cvrp` or `tardiness` |
+| `problem` | `"jobshop"` | `jobshop`, `rcpsp`, `cvrp`, `tardiness` or `rostering` |
 | `size` | the problem's default | a key of the problem's `SIZES` |
 | `level` | `1` | `1` (solution) or `2` (algorithm) |
 | `instance` / `instance_seed` | generated from `seed` | an explicit instance, e.g. read with the problem's `load`, or the seed of a generated one |

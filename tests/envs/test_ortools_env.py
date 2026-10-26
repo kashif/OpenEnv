@@ -18,7 +18,13 @@ from ortools_env import sandbox
 from ortools_env.problems import jobshop, PROBLEMS, score
 from ortools_env.server.ortools_environment import ORToolsEnvironment
 
-TINY_SIZES = {"jobshop": "6x6", "rcpsp": "j10", "cvrp": "n20", "tardiness": "n10"}
+TINY_SIZES = {
+    "jobshop": "6x6",
+    "rcpsp": "j10",
+    "cvrp": "n20",
+    "tardiness": "n10",
+    "rostering": "4x1",
+}
 
 
 def _text(obs) -> str:
@@ -79,6 +85,11 @@ def test_verifiers_reject_infeasible_solutions():
     instance = tardiness.generate(0, "n10")
     with pytest.raises(ValueError):
         tardiness.evaluate(instance, {"sequence": [0] * 10})
+
+    rostering = PROBLEMS["rostering"]
+    instance = rostering.generate(0, "4x1")
+    with pytest.raises(ValueError):
+        rostering.evaluate(instance, {"schedule": [[0] * 7 for _ in range(4)]})
 
 
 def test_score():
