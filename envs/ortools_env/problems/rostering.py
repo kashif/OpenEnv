@@ -183,10 +183,24 @@ def evaluate(instance: dict, solution: dict) -> int:
     return penalty
 
 
+BASELINE = "the first feasible roster that CP-SAT finds (single worker) when all penalties are ignored"
+
+
+def baseline(instance: dict) -> int:
+    """Total penalty of the naive roster described in `BASELINE`."""
+    return _solve(instance, time_limit=60.0, num_workers=1, minimize=False)[1]
+
+
 def reference(
     instance: dict, time_limit: float, num_workers: int = 8
 ) -> tuple[dict, int, int]:
     """Solve with CP-SAT; return `(solution, objective, lower_bound)`."""
+    return _solve(instance, time_limit, num_workers, minimize=True)
+
+
+def _solve(
+    instance: dict, time_limit: float, num_workers: int, minimize: bool
+) -> tuple[dict, int, int]:
     from ortools.sat.python import cp_model
 
     num_employees, num_days = instance["num_employees"], 7 * instance["num_weeks"]
@@ -267,7 +281,8 @@ def reference(
 
     for e, shift, d, cost in instance["requests"]:
         terms.append(cost * work[e, shift, d])
-    model.minimize(sum(terms))
+    if minimize:
+        model.minimize(sum(terms))
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit

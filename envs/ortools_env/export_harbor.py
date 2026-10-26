@@ -138,11 +138,13 @@ def main():
         task = {"level": level, "solve_time_limit_s": args.solve_time_limit}
         if level == 1:
             task["reference"] = row["reference"]
+            task["baseline"] = row["baseline"]
         else:
             task["eval_instances"] = [
                 module.generate(s, row["size"]) for s in row["eval_seeds"]
             ]
             task["eval_references"] = row["eval_references"]
+            task["eval_baselines"] = row["eval_baselines"]
         with open(os.path.join(task_dir, "tests", "task.json"), "w") as f:
             json.dump(task, f)
         shutil.copy(module.__file__, os.path.join(task_dir, "tests", "problem.py"))

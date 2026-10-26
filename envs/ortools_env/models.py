@@ -19,9 +19,11 @@ class ORToolsState(State):
     level: int = 1
     instance_seed: Optional[int] = None
     reference: Optional[float] = None
+    baseline: Optional[float] = None
     lower_bound: Optional[float] = None
     eval_seeds: Optional[list[int]] = None
     eval_references: Optional[list[Optional[float]]] = None
+    eval_baselines: Optional[list[Optional[float]]] = None
     allow_ortools: bool = False
     compute_budget_s: float = 0.0
     compute_used_s: float = 0.0

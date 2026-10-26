@@ -7,8 +7,8 @@
 """
 Build a JSONL dataset of episodes with precomputed OR-Tools references.
 
-Each row holds the `reset` arguments of one episode: problem, size, level, instance seed and reference (level 1), or
-evaluation seeds and references (level 2). Sizes are sampled per row from `--sizes`, so one dataset can mix sizes.
+Each row holds the `reset` arguments of one episode: problem, size, level, instance seed, reference and naive
+baseline (level 1), or evaluation seeds, references and baselines (level 2). Sizes are sampled per row from `--sizes`, so one dataset can mix sizes.
 
     python -m ortools_env.build_dataset --problem rcpsp --sizes j60 j120 --level 1 --num-rows 256 \
         --reference-time-limit 60 --out rcpsp_l1.jsonl
@@ -68,18 +68,17 @@ def main():
                 _, row["reference"], row["lower_bound"] = module.reference(
                     instance, args.reference_time_limit, args.num_workers
                 )
+                row["baseline"] = module.baseline(instance)
             else:
                 row["eval_seeds"] = [
                     rng.randrange(2**31) for _ in range(args.num_eval_instances)
                 ]
+                instances = [module.generate(s, size) for s in row["eval_seeds"]]
                 row["eval_references"] = [
-                    module.reference(
-                        module.generate(s, size),
-                        args.reference_time_limit,
-                        args.num_workers,
-                    )[1]
-                    for s in row["eval_seeds"]
+                    module.reference(i, args.reference_time_limit, args.num_workers)[1]
+                    for i in instances
                 ]
+                row["eval_baselines"] = [module.baseline(i) for i in instances]
             f.write(json.dumps(row) + "\n")
             f.flush()
             print(f"[{i + 1}/{args.num_rows}] {json.dumps(row)}", flush=True)

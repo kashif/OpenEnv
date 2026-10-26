@@ -136,6 +136,26 @@ def evaluate(instance: dict, solution: dict) -> int:
     return makespan
 
 
+BASELINE = (
+    "schedule the operations round by round (operation 0 of every job in job order, then operation 1, ...), each "
+    "as early as possible"
+)
+
+
+def baseline(instance: dict) -> int:
+    """Makespan of the naive round-robin schedule described in `BASELINE`."""
+    job_end = [0] * instance["num_jobs"]
+    machine_end = [0] * instance["num_machines"]
+    for k in range(max(len(job) for job in instance["jobs"])):
+        for j, job in enumerate(instance["jobs"]):
+            if k < len(job):
+                machine, duration = job[k]
+                job_end[j] = machine_end[machine] = (
+                    max(job_end[j], machine_end[machine]) + duration
+                )
+    return max(job_end)
+
+
 def reference(
     instance: dict, time_limit: float, num_workers: int = 8
 ) -> tuple[dict, int, int]:

@@ -34,10 +34,29 @@ placement, demand distribution) per seed.
 
 ## Reward
 
-All objectives are minimized. The reward is `reference / objective` (1.0 if the objective is 0), averaged over the
-evaluation instances at level 2, and 0 for an infeasible solution, a crash or a timeout. Matching the reference scores
-1.0; beating it scores above 1.0. The episode ends at the first submission, whose observation carries `done=True` and
-the reward.
+All objectives are minimized. The reward places the agent's objective between a naive solution and the OR-Tools
+reference:
+
+```
+reward = (naive - objective) / (naive - reference)
+```
+
+1.0 matches the reference and above 1.0 beats it; 0 is no better than the naive solution, and worse solutions score
+below 0 down to -1.0, which is also the score of an infeasible solution, a crash or a timeout. At level 2 the reward is
+the mean over the evaluation instances. The episode ends at the first submission, whose observation carries
+`done=True` and the reward.
+
+The naive solution ignores the instance data, so a policy cannot collect reward by submitting any feasible answer
+(a plain `reference / objective` ratio gives a random job order on 10 jobs about 0.5). Each problem describes its
+naive solution in `BASELINE` and computes it with `baseline(instance)`:
+
+| `problem` | Naive solution |
+|---|---|
+| `jobshop` | operations scheduled round by round in job order, each as early as possible |
+| `rcpsp` | serial schedule in activity index order |
+| `cvrp` | customers in index order, a new route whenever the next one does not fit |
+| `tardiness` | jobs in index order |
+| `rostering` | first feasible roster CP-SAT finds when all penalties are ignored |
 
 References are best computed offline with a long time limit:
 
@@ -46,9 +65,9 @@ PYTHONPATH=src:envs python -m ortools_env.build_dataset --problem rcpsp --sizes 
     --num-rows 256 --reference-time-limit 60 --out rcpsp_l1.jsonl
 ```
 
-Each row holds the `reset` arguments of one episode (`problem`, `size`, `level`, `instance_seed`, `reference` or
-`eval_seeds` and `eval_references`). A reference missing from `reset` is computed at submission time with
-`reference_time_limit_s`.
+Each row holds the `reset` arguments of one episode (`problem`, `size`, `level`, `instance_seed`, `reference` and
+`baseline`, or `eval_seeds`, `eval_references` and `eval_baselines`). A reference missing from `reset` is computed at
+submission time with `reference_time_limit_s`, and so is a missing baseline.
 
 ## Quick start
 
@@ -93,8 +112,8 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 | `size` | the problem's default | a key of the problem's `SIZES` |
 | `level` | `1` | `1` (solution) or `2` (algorithm) |
 | `instance` / `instance_seed` | generated from `seed` | an explicit instance, e.g. read with the problem's `load`, or the seed of a generated one |
-| `reference`, `lower_bound` | computed at submission | precomputed reference objective and bound (level 1) |
-| `eval_seeds`, `eval_references` | `num_eval_instances` seeds from `seed` | hidden evaluation instances and their references (level 2) |
+| `reference`, `baseline`, `lower_bound` | computed at submission | precomputed reference, naive objective and bound (level 1) |
+| `eval_seeds`, `eval_references`, `eval_baselines` | `num_eval_instances` seeds from `seed` | hidden evaluation instances, their references and naive objectives (level 2) |
 | `allow_ortools` | `False` | whether the agent's code may import `ortools` |
 | `compute_budget_s`, `max_python_calls`, `python_timeout_s` | `600`, `50`, `120` | sandbox budget |
 | `solve_time_limit_s` | `30` | per-instance time limit of `solve` (level 2) |

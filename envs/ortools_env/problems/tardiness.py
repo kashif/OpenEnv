@@ -82,6 +82,16 @@ def evaluate(instance: dict, solution: dict) -> int:
     return total
 
 
+BASELINE = "process the jobs in index order"
+
+
+def baseline(instance: dict) -> int:
+    """Total weighted tardiness of the naive sequence described in `BASELINE`."""
+    return evaluate(
+        instance, {"sequence": list(range(len(instance["processing_times"])))}
+    )
+
+
 def reference(
     instance: dict, time_limit: float, num_workers: int = 8
 ) -> tuple[dict, int, int]:

@@ -152,6 +152,21 @@ def evaluate(instance: dict, solution: dict) -> int:
     return total
 
 
+BASELINE = "visit the customers in index order, starting a new route whenever the next customer does not fit"
+
+
+def baseline(instance: dict) -> int:
+    """Total distance of the naive routes described in `BASELINE`."""
+    routes, load = [[]], 0
+    for node in range(1, len(instance["coords"])):
+        if load + instance["demands"][node] > instance["capacity"]:
+            routes.append([])
+            load = 0
+        routes[-1].append(node)
+        load += instance["demands"][node]
+    return evaluate(instance, {"routes": routes})
+
+
 def reference(
     instance: dict, time_limit: float, num_workers: int = 8
 ) -> tuple[dict, int, None]:

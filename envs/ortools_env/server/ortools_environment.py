@@ -15,9 +15,10 @@ deliverable.
 - Level 2: the problem class and an example instance; the agent submits code defining `solve(instance)` with
   `submit_algorithm`, which is run on unseen instances.
 
-The reward is the reference objective divided by the agent's (minimization), averaged over the evaluation instances
-at level 2, and 0 for an infeasible solution. References come from OR-Tools (CP-SAT, or the routing solver for CVRP)
-and should be precomputed into the dataset with `build_dataset.py`; missing ones are computed at submission time.
+The reward is `(naive - objective) / (naive - reference)` (see `problems.score`), averaged over the evaluation
+instances at level 2: 1.0 matches the OR-Tools reference (CP-SAT, or the routing solver for CVRP), 0 is no better than
+a naive solution that ignores the instance data, and -1 is an infeasible solution. References should be precomputed
+into the dataset with `build_dataset.py`; missing references and baselines are computed at submission time.
 """
 
 import asyncio
@@ -91,7 +92,7 @@ class ORToolsEnvironment(MCPEnvironment):
                 solution: The solution as a JSON string, in the format given in the problem statement.
 
             Returns:
-                The objective, the reference objective and the resulting score.
+                The objective, the naive and reference objectives and the resulting score.
             """
             return await asyncio.to_thread(self._submit_solution, solution)
 
@@ -123,9 +124,11 @@ class ORToolsEnvironment(MCPEnvironment):
         instance: Optional[dict] = None,
         instance_seed: Optional[int] = None,
         reference: Optional[float] = None,
+        baseline: Optional[float] = None,
         lower_bound: Optional[float] = None,
         eval_seeds: Optional[list[int]] = None,
         eval_references: Optional[list[Optional[float]]] = None,
+        eval_baselines: Optional[list[Optional[float]]] = None,
         num_eval_instances: int = 4,
         allow_ortools: bool = False,
         compute_budget_s: float = 600.0,
@@ -156,12 +159,16 @@ class ORToolsEnvironment(MCPEnvironment):
                 Seed of the generated instance.
             reference (`float`, *optional*):
                 Precomputed reference objective of the instance (level 1).
+            baseline (`float`, *optional*):
+                Precomputed objective of the problem's naive solution on the instance (level 1).
             lower_bound (`float`, *optional*):
                 Precomputed lower bound of the instance, only reported in the state.
             eval_seeds (`list[int]`, *optional*):
                 Seeds of the hidden evaluation instances (level 2).
             eval_references (`list[float]`, *optional*):
                 Precomputed reference objectives of the evaluation instances (level 2).
+            eval_baselines (`list[float]`, *optional*):
+                Precomputed naive-solution objectives of the evaluation instances (level 2).
             num_eval_instances (`int`, *optional*, defaults to `4`):
                 Number of evaluation instances when `eval_seeds` is not given (level 2).
             allow_ortools (`bool`, *optional*, defaults to `False`):
@@ -195,6 +202,7 @@ class ORToolsEnvironment(MCPEnvironment):
                 eval_seeds = [rng.randrange(2**31) for _ in range(num_eval_instances)]
             self._eval_instances = [self._module.generate(s, size) for s in eval_seeds]
             eval_references = list(eval_references or [None] * len(eval_seeds))
+            eval_baselines = list(eval_baselines or [None] * len(eval_seeds))
         if self._workdir is not None:
             shutil.rmtree(self._workdir, ignore_errors=True)
         self._workdir = tempfile.mkdtemp(prefix="ortools_env_")
@@ -207,9 +215,11 @@ class ORToolsEnvironment(MCPEnvironment):
             level=level,
             instance_seed=instance_seed,
             reference=reference,
+            baseline=baseline,
             lower_bound=lower_bound,
             eval_seeds=eval_seeds,
             eval_references=eval_references,
+            eval_baselines=eval_baselines,
             allow_ortools=allow_ortools,
             compute_budget_s=compute_budget_s,
             max_python_calls=max_python_calls,
@@ -286,12 +296,19 @@ class ORToolsEnvironment(MCPEnvironment):
             KeyError,
             IndexError,
         ) as e:  # JSONDecodeError is a ValueError
-            self._state.reward = 0.0
-            return f"Infeasible solution: {e}\nscore=0.0"
+            self._state.reward = score(None, 0, 0)
+            return f"Infeasible solution: {e}\nscore={self._state.reward}"
         self._state.reference = self._reference(self._instance, self._state.reference)
+        if self._state.baseline is None:
+            self._state.baseline = self._module.baseline(self._instance)
         self._state.objective = objective
-        self._state.reward = score(objective, self._state.reference)
-        return f"objective={objective} reference={self._state.reference} score={self._state.reward:.4f}"
+        self._state.reward = score(
+            objective, self._state.reference, self._state.baseline
+        )
+        return (
+            f"objective={objective} naive={self._state.baseline} reference={self._state.reference} "
+            f"score={self._state.reward:.4f}"
+        )
 
     def _submit_algorithm(self, code: str) -> str:
         if self._state.submitted:
@@ -314,24 +331,27 @@ class ORToolsEnvironment(MCPEnvironment):
             finally:
                 shutil.rmtree(workdir, ignore_errors=True)
             if result["timed_out"]:
-                scores.append(0.0)
+                scores.append(score(None, 0, 0))
                 lines.append(f"instance {k}: timed out")
                 continue
             if result["solution"] is None:
-                scores.append(0.0)
+                scores.append(score(None, 0, 0))
                 lines.append(f"instance {k}: failed\n{result['output'][-1000:]}")
                 continue
             try:
                 objective = self._module.evaluate(instance, result["solution"])
             except (ValueError, TypeError, KeyError, IndexError) as e:
-                scores.append(0.0)
+                scores.append(score(None, 0, 0))
                 lines.append(f"instance {k}: infeasible ({e})")
                 continue
             reference = self._reference(instance, self._state.eval_references[k])
             self._state.eval_references[k] = reference
-            scores.append(score(objective, reference))
+            if self._state.eval_baselines[k] is None:
+                self._state.eval_baselines[k] = self._module.baseline(instance)
+            naive = self._state.eval_baselines[k]
+            scores.append(score(objective, reference, naive))
             lines.append(
-                f"instance {k}: objective={objective} reference={reference} score={scores[-1]:.4f}"
+                f"instance {k}: objective={objective} naive={naive} reference={reference} score={scores[-1]:.4f}"
             )
         self._state.reward = sum(scores) / len(scores)
         return "\n".join(lines) + f"\nscore={self._state.reward:.4f}"

@@ -93,10 +93,33 @@ def test_verifiers_reject_infeasible_solutions():
 
 
 def test_score():
-    assert score(100, 100) == 1.0
-    assert score(200, 100) == 0.5
-    assert score(50, 100) == 2.0
-    assert score(0, 0) == 1.0
+    # Normalized between the naive baseline (0.0) and the reference (1.0).
+    assert score(100, reference=100, baseline=300) == 1.0
+    assert score(300, reference=100, baseline=300) == 0.0
+    assert score(200, reference=100, baseline=300) == 0.5
+    assert score(50, reference=100, baseline=300) == 1.25
+    assert score(500, reference=100, baseline=300) == -1.0
+    assert score(None, reference=100, baseline=300) == -1.0
+    # The naive solution already matches the reference.
+    assert score(100, reference=100, baseline=100) == 1.0
+    assert score(101, reference=100, baseline=100) == -1.0
+
+
+@pytest.mark.parametrize("problem", sorted(PROBLEMS))
+def test_baseline_is_no_better_than_the_reference(problem):
+    module = PROBLEMS[problem]
+    instance = module.generate(0, TINY_SIZES[problem])
+    _, objective, _ = module.reference(instance, time_limit=5, num_workers=1)
+    assert module.baseline(instance) >= objective
+
+
+def test_naive_solution_scores_zero():
+    env = ORToolsEnvironment()
+    env.reset(problem="tardiness", size="n10", seed=0, reference_time_limit_s=5)
+    obs = _call(
+        env, "submit_solution", solution=json.dumps({"sequence": list(range(10))})
+    )
+    assert obs.reward == 0.0
 
 
 def test_sandbox_blocks_ortools_and_times_out(tmp_path):
@@ -135,12 +158,12 @@ def test_level_1_episode():
     assert "episode is over" in _text(obs)
 
 
-def test_level_1_infeasible_solution_scores_zero():
+def test_level_1_infeasible_solution_scores_minus_one():
     env = ORToolsEnvironment()
     env.reset(problem="tardiness", size="n10", seed=0, reference=1)
     obs = _call(env, "submit_solution", solution='{"sequence": [0, 0]}')
     assert obs.done
-    assert obs.reward == 0.0
+    assert obs.reward == -1.0
 
 
 def test_level_2_episode():
@@ -161,10 +184,11 @@ def test_level_2_episode():
     )
     obs = _call(env, "submit_algorithm", code=code)
     assert obs.done
-    assert 0.0 < obs.reward <= 1.0
+    assert "naive=" in _text(obs)
+    assert -1.0 <= obs.reward <= 1.0
 
 
-def test_level_2_crashing_algorithm_scores_zero():
+def test_level_2_crashing_algorithm_scores_minus_one():
     env = ORToolsEnvironment()
     env.reset(
         problem="tardiness",
@@ -178,4 +202,4 @@ def test_level_2_crashing_algorithm_scores_zero():
         env, "submit_algorithm", code="def solve(instance):\n    raise RuntimeError"
     )
     assert obs.done
-    assert obs.reward == 0.0
+    assert obs.reward == -1.0

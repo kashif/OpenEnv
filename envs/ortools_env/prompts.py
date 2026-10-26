@@ -31,20 +31,24 @@ def task_prompt(
         " and OR-Tools (`ortools`)" if allow_ortools else ""
     )
     parts = [f"# {module.NAME} ({size})", module.STATEMENT]
+    scoring = (
+        "Scoring: `(naive - yours) / (naive - reference)`, where `reference` is the objective of an OR-Tools "
+        f"reference solution and `naive` the objective of the naive solution that {module.BASELINE}. Matching the "
+        "reference scores 1.0 and beating it scores above 1.0; a solution no better than the naive one scores 0 "
+        "or less, down to -1.0, which is also the score of an infeasible solution."
+    )
     if level == 1:
         parts.append(
-            "## Task\n\nFind the best solution you can for the instance below. Your score is the reference "
-            "objective divided by yours, so beating the reference scores above 1.0, and an infeasible solution "
-            f"scores 0. You may use {libraries}."
+            "## Task\n\nFind the best solution you can for the instance below. You may use "
+            f"{libraries}.\n\n{scoring}"
         )
     else:
         parts.append(
             "## Task\n\nDesign an algorithm for this problem class. Write Python code defining "
             "`solve(instance: dict) -> dict` that returns a solution in the format above. It will be run on unseen "
             f"instances of size {size} drawn from the same distribution as the example instance below, with "
-            f"{solve_time_limit_s:g} seconds per instance; it may only use {libraries}. Your score is the mean over "
-            "those instances of the reference objective divided by yours (0 for an infeasible solution, a crash or "
-            "a timeout), so beating the reference scores above 1.0."
+            f"{solve_time_limit_s:g} seconds per instance; it may only use {libraries}. Your score is the mean of "
+            f"the per-instance scores (a crash or a timeout counts as infeasible).\n\n{scoring}"
         )
     text = json.dumps(instance, separators=(",", ":"))
     name = "Instance" if level == 1 else "Example instance"

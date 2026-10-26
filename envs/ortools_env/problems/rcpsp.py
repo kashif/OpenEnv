@@ -150,6 +150,43 @@ def evaluate(instance: dict, solution: dict) -> int:
     return max(starts[i] + task["duration"] for i, task in enumerate(tasks))
 
 
+BASELINE = (
+    "a serial schedule: activities in increasing index order among those whose predecessors are scheduled, each at "
+    "the earliest time its predecessors and the resources allow"
+)
+
+
+def baseline(instance: dict) -> int:
+    """Makespan of the naive serial schedule described in `BASELINE`."""
+    tasks, capacities = instance["tasks"], instance["capacities"]
+    predecessors = [[] for _ in tasks]
+    for i, task in enumerate(tasks):
+        for s in task["successors"]:
+            predecessors[s].append(i)
+    horizon = sum(task["duration"] for task in tasks) + 1
+    usage = [[0] * horizon for _ in capacities]
+    ends = [None] * len(tasks)
+    while None in ends:
+        i = next(
+            i
+            for i in range(len(tasks))
+            if ends[i] is None and all(ends[p] is not None for p in predecessors[i])
+        )
+        duration, demands = tasks[i]["duration"], tasks[i]["demands"]
+        start = max((ends[p] for p in predecessors[i]), default=0)
+        while any(
+            usage[r][t] + demands[r] > capacities[r]
+            for r in range(len(capacities))
+            for t in range(start, start + duration)
+        ):
+            start += 1
+        for r in range(len(capacities)):
+            for t in range(start, start + duration):
+                usage[r][t] += demands[r]
+        ends[i] = start + duration
+    return max(ends)
+
+
 def reference(
     instance: dict, time_limit: float, num_workers: int = 8
 ) -> tuple[dict, int, int]:

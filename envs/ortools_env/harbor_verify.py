@@ -30,8 +30,13 @@ with open(sys.argv[2], "w") as f:
 """
 
 
-def score(objective, reference):
-    return 1.0 if objective == 0 else reference / objective
+def score(objective, reference, baseline):
+    # Same as `problems.score` in the environment.
+    if objective is None:
+        return -1.0
+    if baseline <= reference:
+        return 1.0 if objective <= reference else -1.0
+    return max(-1.0, (baseline - objective) / (baseline - reference))
 
 
 def level_1(task):
@@ -40,14 +45,16 @@ def level_1(task):
     with open("/app/solution.json") as f:
         solution = json.load(f)
     objective = problem.evaluate(instance, solution)
-    print(f"objective={objective} reference={task['reference']}")
-    return score(objective, task["reference"])
+    print(
+        f"objective={objective} naive={task['baseline']} reference={task['reference']}"
+    )
+    return score(objective, task["reference"], task["baseline"])
 
 
 def level_2(task):
     scores = []
-    for k, (instance, reference) in enumerate(
-        zip(task["eval_instances"], task["eval_references"])
+    for k, (instance, reference, baseline) in enumerate(
+        zip(task["eval_instances"], task["eval_references"], task["eval_baselines"])
     ):
         workdir = tempfile.mkdtemp()
         instance_path, solution_path = (
@@ -65,12 +72,14 @@ def level_2(task):
             )
             with open(solution_path) as f:
                 objective = problem.evaluate(instance, json.load(f))
-        except Exception as e:  # noqa: BLE001 - any failure of the submitted code scores 0 on this instance
+        except Exception as e:  # noqa: BLE001 - any failure of the submitted code is infeasible
             print(f"instance {k}: {type(e).__name__}: {e}")
-            scores.append(0.0)
+            scores.append(score(None, reference, baseline))
             continue
-        print(f"instance {k}: objective={objective} reference={reference}")
-        scores.append(score(objective, reference))
+        print(
+            f"instance {k}: objective={objective} naive={baseline} reference={reference}"
+        )
+        scores.append(score(objective, reference, baseline))
     return sum(scores) / len(scores)
 
 
@@ -79,9 +88,9 @@ def main():
         task = json.load(f)
     try:
         reward = level_1(task) if task["level"] == 1 else level_2(task)
-    except Exception as e:  # noqa: BLE001 - a missing or infeasible submission scores 0
+    except Exception as e:  # noqa: BLE001 - a missing or infeasible submission
         print(f"{type(e).__name__}: {e}")
-        reward = 0.0
+        reward = score(None, 0, 0)
     print(f"reward={reward}")
     os.makedirs("/logs/verifier", exist_ok=True)
     with open("/logs/verifier/reward.txt", "w") as f:
