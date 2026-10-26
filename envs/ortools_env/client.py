@@ -18,7 +18,7 @@ from openenv.core.env_server.mcp_types import CallToolAction
 with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
     prompt = env.reset(problem="jobshop", size="15x15", seed=0).observation.metadata["prompt"]
     print(env.call_tool("run_python", code="print(instance['num_jobs'])"))
-    result = env.step(CallToolAction(tool_name="submit_solution", arguments={"solution": "..."}))
+    result = env.step(CallToolAction(tool_name="submit_solution", arguments={"solution": {"starts": [...]}}))
     print(result.reward, result.done)
 ```
 """

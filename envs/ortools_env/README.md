@@ -101,7 +101,7 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
     # `call_tool` returns only the tool text; use `step` to read the reward of the submission.
     result = env.step(
         CallToolAction(
-            tool_name="submit_solution", arguments={"solution": '{"starts": [...]}'}
+            tool_name="submit_solution", arguments={"solution": {"starts": [...]}}
         )
     )
     print(result.reward, result.done)
@@ -113,7 +113,7 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 | Tool | Description |
 |---|---|
 | `run_python(code)` | Runs a script in the sandbox with the instance bound to `instance` (and in `instance.json`); files persist between calls. Counts against the compute budget. |
-| `submit_solution(solution)` | Level 1: submits a JSON solution. Ends the episode. |
+| `submit_solution(solution)` | Level 1: submits the solution as a JSON object. Ends the episode. |
 | `submit_algorithm(code)` | Level 2: submits code defining `solve(instance)`, run in a fresh process per evaluation instance with `solve_time_limit_s`. Ends the episode. |
 
 ## Reset arguments

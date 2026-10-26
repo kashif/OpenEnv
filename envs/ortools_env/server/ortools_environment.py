@@ -22,7 +22,6 @@ into the dataset with `build_dataset.py`; missing references and baselines are c
 """
 
 import asyncio
-import json
 import random
 import shutil
 import tempfile
@@ -49,7 +48,7 @@ SUBMIT_HELP = {
     1: (
         "## Tools\n\n- `run_python(code)` runs a Python script with the instance bound to the global `instance` "
         "(also in `instance.json`); files you write persist between calls.\n- `submit_solution(solution)` submits "
-        "your final solution as a JSON string. You can submit only once."
+        "your final solution as a JSON object in the format above (not a string). You can submit only once."
     ),
     2: (
         "## Tools\n\n- `run_python(code)` runs a Python script with the example instance bound to the global "
@@ -84,12 +83,12 @@ class ORToolsEnvironment(MCPEnvironment):
             return await asyncio.to_thread(self._run_python, code)
 
         @mcp.tool
-        async def submit_solution(solution: str) -> str:
+        async def submit_solution(solution: dict) -> str:
             """
             Submit the final solution for the instance (level 1). Ends the episode.
 
             Args:
-                solution: The solution as a JSON string, in the format given in the problem statement.
+                solution: The solution object, in the format given in the problem statement.
 
             Returns:
                 The objective, the naive and reference objectives and the resulting score.
@@ -282,20 +281,15 @@ class ORToolsEnvironment(MCPEnvironment):
             f"{self._state.max_python_calls - self._state.python_calls} calls left]"
         )
 
-    def _submit_solution(self, solution: str) -> str:
+    def _submit_solution(self, solution: dict) -> str:
         if self._state.submitted:
             return "Error: the episode is over."
         if self._state.level != 1:
             return "Error: this is a level-2 task; use submit_algorithm."
         self._state.submitted = True
         try:
-            objective = self._module.evaluate(self._instance, json.loads(solution))
-        except (
-            ValueError,
-            TypeError,
-            KeyError,
-            IndexError,
-        ) as e:  # JSONDecodeError is a ValueError
+            objective = self._module.evaluate(self._instance, solution)
+        except (ValueError, TypeError, KeyError, IndexError) as e:
             self._state.reward = score(None, 0, 0)
             return f"Infeasible solution: {e}\nscore={self._state.reward}"
         self._state.reference = self._reference(self._instance, self._state.reference)

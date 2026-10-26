@@ -6,8 +6,6 @@
 
 """Tests for the OR-Tools environment: generators, verifiers, references and the MCP episode flow."""
 
-import json
-
 import pytest
 
 pytest.importorskip("ortools")
@@ -116,9 +114,7 @@ def test_baseline_is_no_better_than_the_reference(problem):
 def test_naive_solution_scores_zero():
     env = ORToolsEnvironment()
     env.reset(problem="tardiness", size="n10", seed=0, reference_time_limit_s=5)
-    obs = _call(
-        env, "submit_solution", solution=json.dumps({"sequence": list(range(10))})
-    )
+    obs = _call(env, "submit_solution", solution={"sequence": list(range(10))})
     assert obs.reward == 0.0
 
 
@@ -149,19 +145,19 @@ def test_level_1_episode():
     assert not obs.done
 
     solution, objective, _ = jobshop.reference(env._instance, 5, 1)
-    obs = _call(env, "submit_solution", solution=json.dumps(solution))
+    obs = _call(env, "submit_solution", solution=solution)
     assert obs.done
     assert obs.reward == 1.0
     assert env.state.objective == objective
 
-    obs = _call(env, "submit_solution", solution=json.dumps(solution))
+    obs = _call(env, "submit_solution", solution=solution)
     assert "episode is over" in _text(obs)
 
 
 def test_level_1_infeasible_solution_scores_minus_one():
     env = ORToolsEnvironment()
     env.reset(problem="tardiness", size="n10", seed=0, reference=1)
-    obs = _call(env, "submit_solution", solution='{"sequence": [0, 0]}')
+    obs = _call(env, "submit_solution", solution={"sequence": [0, 0]})
     assert obs.done
     assert obs.reward == -1.0
 
