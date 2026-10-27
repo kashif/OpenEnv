@@ -25,8 +25,10 @@ design, a loader for the standard file format, a pure-Python verifier, and an OR
 | `jobshop` | Job shop, minimize makespan | Taillard (1993), reproduces `ta01`-`ta80` from their seeds | `6x6` … `100x20` | OR-Library / JSPLIB | CP-SAT (optimum and bound) |
 | `rcpsp` | Resource-constrained project scheduling | PSPLIB design (resource factor, resource strength) | `j10` … `j300` | PSPLIB `.sm` | CP-SAT (optimum and bound) |
 | `cvrp` | Capacitated vehicle routing | Uchoa et al. (2017) "X" design | `n20` … `n1000` | CVRPLIB `.vrp` | Routing solver, guided local search |
+| `cvrptw` | Vehicle routing with time windows | Solomon (1987) / Gehring & Homberger classes R, C, RC, series 1 and 2 | `n25` … `n1000` | Solomon / Gehring-Homberger | Routing solver, guided local search |
 | `tardiness` | Single-machine total weighted tardiness | OR-Library (Potts & Van Wassenhove) | `n10` … `n500` | OR-Library `wtN.txt` | CP-SAT (optimum and bound) |
 | `rostering` | Nurse rostering with hard and soft work rules | Rules of `shift_scheduling_sat.py`, random demands and requests | `4x1` … `80x8` (employees x weeks) | — | CP-SAT (optimum and bound) |
+| `timetabling` | Curriculum-based course timetabling | ITC-2007 track 3 rules, generated around a hidden feasible timetable | `c10` … `c150` (courses) | ITC-2007 `.ctt` | CP-SAT (optimum and bound) |
 
 The smallest size of each problem is for smoke tests. Every generated instance is reproducible from `(seed, size)`,
 and the generators randomize the structural parameters (resource strength, due-date tightness, depot and customer
@@ -55,8 +57,10 @@ naive solution in `BASELINE` and computes it with `baseline(instance)`:
 | `jobshop` | operations scheduled round by round in job order, each as early as possible |
 | `rcpsp` | serial schedule in activity index order |
 | `cvrp` | customers in index order, a new route whenever the next one does not fit |
+| `cvrptw` | customers in index order, a new route whenever the next one breaks the capacity or a time window |
 | `tardiness` | jobs in index order |
 | `rostering` | first feasible roster CP-SAT finds when all penalties are ignored |
+| `timetabling` | first feasible timetable CP-SAT finds when all penalties are ignored |
 
 References are best computed offline with a long time limit:
 
@@ -110,7 +114,7 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 
 | Argument | Default | Description |
 |---|---|---|
-| `problem` | `"jobshop"` | `jobshop`, `rcpsp`, `cvrp`, `tardiness` or `rostering` |
+| `problem` | `"jobshop"` | `jobshop`, `rcpsp`, `cvrp`, `cvrptw`, `tardiness`, `rostering` or `timetabling` |
 | `size` | the problem's default | a key of the problem's `SIZES` |
 | `level` | `1` | `1` (solution) or `2` (algorithm) |
 | `instance` / `instance_seed` | generated from `seed` | an explicit instance, e.g. read with the problem's `load`, or the seed of a generated one |

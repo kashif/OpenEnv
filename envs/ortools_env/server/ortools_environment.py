@@ -180,7 +180,8 @@ class ORToolsEnvironment(MCPEnvironment):
             episode_id (`str`, *optional*):
                 Episode identifier.
             problem (`str`, *optional*, defaults to `"jobshop"`):
-                One of `"jobshop"`, `"rcpsp"`, `"cvrp"`, `"tardiness"` and `"rostering"`.
+                One of `"jobshop"`, `"rcpsp"`, `"cvrp"`, `"cvrptw"`, `"tardiness"`, `"rostering"` and
+                `"timetabling"`.
             size (`str`, *optional*):
                 Instance size, a key of the problem's `SIZES`. Defaults to the problem's `DEFAULT_SIZE`.
             level (`int`, *optional*, defaults to `1`):

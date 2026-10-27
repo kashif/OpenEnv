@@ -19,10 +19,11 @@ Every module exposes the same functions:
 All objectives are minimized and non-negative.
 """
 
-from . import cvrp, jobshop, rcpsp, rostering, tardiness
+from . import cvrp, cvrptw, jobshop, rcpsp, rostering, tardiness, timetabling
 
 PROBLEMS = {
-    module.NAME: module for module in (jobshop, rcpsp, cvrp, tardiness, rostering)
+    module.NAME: module
+    for module in (jobshop, rcpsp, cvrp, cvrptw, tardiness, rostering, timetabling)
 }
 
 

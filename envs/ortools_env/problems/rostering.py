@@ -299,4 +299,8 @@ def _solve(
     ]
     solution = {"schedule": schedule}
     # Re-evaluate: penalty literals are only forced up, so the solver objective can overcount by slack.
-    return solution, evaluate(instance, solution), int(solver.best_objective_bound)
+    return (
+        solution,
+        evaluate(instance, solution),
+        max(0, int(solver.best_objective_bound)),
+    )

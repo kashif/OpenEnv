@@ -1,5 +1,5 @@
 {
-  "tags": ["openenv", "optimization", "operations-research", "scheduling", "routing"],
+  "tags": ["openenv", "optimization", "operations-research", "scheduling", "routing", "timetabling"],
   "representative_queries": [
     "find an environment for training LLMs to design operations research algorithms",
     "find a job shop, RCPSP or vehicle routing environment with a verifiable reward",

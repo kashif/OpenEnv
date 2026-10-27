@@ -6,6 +6,8 @@
 
 """Tests for the OR-Tools environment: generators, verifiers, references and the MCP episode flow."""
 
+import random
+
 import pytest
 
 pytest.importorskip("ortools")
@@ -20,8 +22,10 @@ TINY_SIZES = {
     "jobshop": "6x6",
     "rcpsp": "j10",
     "cvrp": "n20",
+    "cvrptw": "n25",
     "tardiness": "n10",
     "rostering": "4x1",
+    "timetabling": "c10",
 }
 
 
@@ -62,6 +66,84 @@ def test_reference_solution_passes_the_verifier(problem):
     assert lower_bound is None or lower_bound <= objective
 
 
+# Seeds of tiny instances that CP-SAT solves to proven optimality within seconds.
+OPTIMAL_SEEDS = {
+    "jobshop": 0,
+    "rcpsp": 0,
+    "tardiness": 0,
+    "rostering": 2,
+    "timetabling": 1,
+}
+
+
+@pytest.mark.parametrize("problem", sorted(OPTIMAL_SEEDS))
+def test_verifier_matches_the_proven_optimum(problem):
+    # Cross-checks the pure-Python verifier against the CP-SAT model: at a proven optimum, they must agree.
+    module = PROBLEMS[problem]
+    instance = module.generate(OPTIMAL_SEEDS[problem], TINY_SIZES[problem])
+    solution, _, lower_bound = module.reference(instance, time_limit=30)
+    assert module.evaluate(instance, solution) == lower_bound
+
+
+def _routing_objective(module, instance, routes):
+    """Cost of `routes` in an OR-Tools routing model of `instance`, or None if OR-Tools rejects them."""
+    from ortools.constraint_solver import pywrapcp
+
+    coords = instance["coords"]
+    manager = pywrapcp.RoutingIndexManager(len(coords), len(routes), 0)
+    routing = pywrapcp.RoutingModel(manager)
+
+    def distance(a, b):
+        return module._distance(coords, manager.IndexToNode(a), manager.IndexToNode(b))
+
+    routing.SetArcCostEvaluatorOfAllVehicles(routing.RegisterTransitCallback(distance))
+    demand = routing.RegisterUnaryTransitCallback(
+        lambda a: instance["demands"][manager.IndexToNode(a)]
+    )
+    routing.AddDimensionWithVehicleCapacity(
+        demand, 0, [instance["capacity"]] * len(routes), True, "load"
+    )
+    if "due_times" in instance:
+        travel = routing.RegisterTransitCallback(
+            lambda a, b: (
+                instance["service_times"][manager.IndexToNode(a)] + distance(a, b)
+            )
+        )
+        horizon = instance["due_times"][0]
+        routing.AddDimension(travel, horizon, horizon, True, "time")
+        time = routing.GetDimensionOrDie("time")
+        for node in range(1, len(coords)):
+            time.CumulVar(manager.NodeToIndex(node)).SetRange(
+                instance["ready_times"][node], instance["due_times"][node]
+            )
+    routing.CloseModelWithParameters(pywrapcp.DefaultRoutingSearchParameters())
+    assignment = routing.ReadAssignmentFromRoutes(routes, True)
+    return None if assignment is None else assignment.ObjectiveValue()
+
+
+@pytest.mark.parametrize("problem", ["cvrp", "cvrptw"])
+def test_routing_verifiers_match_ortools(problem):
+    # Cross-checks feasibility and cost of reference and perturbed routes against an OR-Tools routing model.
+    module = PROBLEMS[problem]
+    rng = random.Random(0)
+    for seed in range(3):
+        instance = module.generate(seed, TINY_SIZES[problem])
+        routes = module.reference(instance, time_limit=2)[0]["routes"]
+        candidates = [routes]
+        for _ in range(20):
+            perturbed = [list(route) for route in routes]
+            a, b = rng.randrange(len(perturbed)), rng.randrange(len(perturbed))
+            i, j = rng.randrange(len(perturbed[a])), rng.randrange(len(perturbed[b]))
+            perturbed[a][i], perturbed[b][j] = perturbed[b][j], perturbed[a][i]
+            candidates.append(perturbed)
+        for candidate in candidates:
+            try:
+                objective = module.evaluate(instance, {"routes": candidate})
+            except ValueError:
+                objective = None
+            assert objective == _routing_objective(module, instance, candidate)
+
+
 def test_verifiers_reject_infeasible_solutions():
     instance = jobshop.generate(0, "6x6")
     with pytest.raises(ValueError):
@@ -88,6 +170,25 @@ def test_verifiers_reject_infeasible_solutions():
     instance = rostering.generate(0, "4x1")
     with pytest.raises(ValueError):
         rostering.evaluate(instance, {"schedule": [[0] * 7 for _ in range(4)]})
+
+    cvrptw = PROBLEMS["cvrptw"]
+    instance = {
+        "capacity": 10,
+        "coords": [[0, 0], [10, 0], [20, 0]],
+        "demands": [0, 1, 1],
+        "ready_times": [0, 0, 0],
+        "due_times": [100, 15, 50],
+        "service_times": [0, 1, 1],
+    }
+    assert cvrptw.evaluate(instance, {"routes": [[1], [2]]}) == 60
+    with pytest.raises(ValueError, match="after its due time"):
+        cvrptw.evaluate(instance, {"routes": [[2, 1]]})
+
+    timetabling = PROBLEMS["timetabling"]
+    instance = timetabling.generate(0, "c10")
+    lectures = [[c, 0, 0] for c, n in enumerate(instance["lectures"]) for _ in range(n)]
+    with pytest.raises(ValueError):
+        timetabling.evaluate(instance, {"assignments": lectures})
 
 
 def test_score():
@@ -278,3 +379,29 @@ def test_submitted_main_block_does_not_run(tmp_path):
     )
     result = sandbox.run(code, {}, str(tmp_path), timeout_s=10, solve=True)
     assert result["solution"] == {"sequence": [0]}
+
+
+def test_loaders_read_benchmark_formats(tmp_path):
+    solomon = tmp_path / "c101.txt"
+    solomon.write_text(
+        "C101\n\nVEHICLE\nNUMBER     CAPACITY\n  25         200\n\nCUSTOMER\n"
+        "CUST NO.  XCOORD.   YCOORD.    DEMAND   READY TIME  DUE DATE   SERVICE   TIME\n\n"
+        "    0      40         50          0          0       1236          0\n"
+        "    1      45         68         10        912        967         90\n"
+    )
+    instance = PROBLEMS["cvrptw"].load(str(solomon))
+    assert instance["capacity"] == 200
+    assert instance["due_times"] == [1236, 967]
+
+    ctt = tmp_path / "toy.ctt"
+    ctt.write_text(
+        "Name: Toy\nCourses: 2\nRooms: 1\nDays: 5\nPeriods_per_day: 4\nCurricula: 1\nConstraints: 1\n\n"
+        "COURSES:\nSceCosC Ocra 3 3 30\nArcTec Indaco 2 2 42\n\nROOMS:\nA 32\n\n"
+        "CURRICULA:\nCur1 2 SceCosC ArcTec\n\nUNAVAILABILITY_CONSTRAINTS:\nArcTec 1 2\n\nEND.\n"
+    )
+    instance = PROBLEMS["timetabling"].load(str(ctt))
+    assert instance["lectures"] == [3, 2]
+    assert instance["curricula"] == [[0, 1]]
+    assert instance["unavailable"] == [[1, 6]]
+    _, objective, _ = PROBLEMS["timetabling"].reference(instance, 5, 1)
+    assert objective >= 0
