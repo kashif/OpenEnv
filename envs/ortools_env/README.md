@@ -139,9 +139,16 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 
 ## Sandbox
 
-Code runs in a subprocess with a wall-clock limit and a 4 GB address-space limit. Imports of `ortools` (unless
-`allow_ortools=True`) and of the environment's own modules are blocked, so the agent can neither call the reference
-solver nor read the verifier. This is resource control, not a security boundary: run the server in its container.
+Code runs in a subprocess with a wall-clock limit and, on Linux, a 4 GB address-space limit; the whole process group
+is killed when a call ends, so nothing it started keeps running. Keeping `ortools` (unless `allow_ortools=True`) and
+the environment's own modules out of reach keeps the agent from calling the reference solver or reading the verifier.
+
+In the container, the code runs as an unprivileged `sandbox` user with its own interpreter (numpy and scipy only), and
+the environment source and the server's packages are not readable by that user; with `allow_ortools=True` it uses a
+second interpreter with `ortools`. This is configured by `SANDBOX_USER`, `SANDBOX_PYTHON` and `SANDBOX_ORTOOLS_PYTHON`
+in `server/Dockerfile`. Outside the container (`SANDBOX_USER` unset), the code runs with the server's interpreter and
+an in-process import blocker that it can remove, which is fine for development but does not keep rewards honest
+against a policy that looks for it.
 
 ## Harbor export
 

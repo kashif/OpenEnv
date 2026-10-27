@@ -7,6 +7,7 @@
 """Tests for the OR-Tools environment: generators, verifiers, references and the MCP episode flow."""
 
 import random
+import time
 
 import pytest
 
@@ -414,3 +415,15 @@ def test_solve_failures_explain_themselves(tmp_path):
     result = sandbox.run(code, {}, str(tmp_path), timeout_s=10, solve=True)
     assert "must return a dict, not NoneType" in result["output"]
     assert result["solution"] is None
+
+
+def test_background_processes_do_not_outlive_the_call(tmp_path):
+    code = (
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', "
+        '\'import time; time.sleep(2); open("late.txt", "w").write("x")\'])\n'
+    )
+    result = sandbox.run(code, {}, str(tmp_path), timeout_s=10)
+    assert result["returncode"] == 0
+    time.sleep(3)
+    assert not (tmp_path / "late.txt").exists()

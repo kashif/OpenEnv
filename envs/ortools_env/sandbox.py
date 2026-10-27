@@ -7,20 +7,28 @@
 """
 Run model-written Python in a subprocess with a wall-clock limit, a memory limit and blocked imports.
 
-This is resource control, not a security boundary: the environment server is expected to run inside its container.
-Blocking `ortools` keeps the policy from calling the reference solver when the task asks it to design its own
-algorithm, and blocking the environment's own packages keeps it from reading the verifier and generators.
+Keeping `ortools` and the environment's own packages out of reach is what keeps the reward honest: otherwise a policy
+can call the reference solver. In the container (see `server/Dockerfile`), `SANDBOX_USER` is set and the code runs as
+that unprivileged user with `SANDBOX_PYTHON`, an interpreter without `ortools`, while the environment source and the
+server's packages are not readable by it. With `allow_ortools=True` it runs with `SANDBOX_ORTOOLS_PYTHON` instead,
+which only the `ortools` group can read. Without `SANDBOX_USER` (local development), the code runs with the server's
+interpreter and an import blocker that it can remove, so rewards are only trustworthy in the container.
 """
 
 import json
 import os
 import resource
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 
 BLOCKED_ALWAYS = ("ortools_env", "problems", "server", "sandbox")
+SANDBOX_USER = os.environ.get("SANDBOX_USER")
+SANDBOX_PYTHON = os.environ.get("SANDBOX_PYTHON", sys.executable)
+SANDBOX_ORTOOLS_PYTHON = os.environ.get("SANDBOX_ORTOOLS_PYTHON", sys.executable)
 
 _RUNNER = """\
 import importlib.abc, json, sys
@@ -95,14 +103,24 @@ def run(
     with tempfile.NamedTemporaryFile("w", suffix=".py", dir=workdir, delete=False) as f:
         f.write(code)
         code_path = f.name
+    os.chmod(code_path, 0o644)
     solution_path = os.path.join(workdir, "solution.json")
     if os.path.exists(solution_path):
         os.remove(solution_path)
+    user = {}
+    if SANDBOX_USER is not None:
+        shutil.chown(workdir, SANDBOX_USER, SANDBOX_USER)
+        user = {
+            "user": SANDBOX_USER,
+            "group": SANDBOX_USER,
+            "extra_groups": ["ortools"] if allow_ortools else [],
+        }
     start = time.monotonic()
-    try:
-        proc = subprocess.run(
+    # Output goes to a file, so processes the code leaves behind cannot hold the call open through a pipe.
+    with tempfile.TemporaryFile("w+") as log:
+        proc = subprocess.Popen(
             [
-                sys.executable,
+                SANDBOX_ORTOOLS_PYTHON if allow_ortools else SANDBOX_PYTHON,
                 "-I",
                 "-c",
                 _RUNNER,
@@ -111,23 +129,27 @@ def run(
                 "solve" if solve else "run",
             ],
             cwd=workdir,
-            capture_output=True,
+            stdout=log,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout_s,
-            preexec_fn=_limit_memory(memory_mb),
+            start_new_session=True,
+            # RLIMIT_AS cannot be lowered on macOS.
+            preexec_fn=_limit_memory(memory_mb) if sys.platform == "linux" else None,
+            **user,
         )
-        output, returncode, timed_out = (
-            proc.stdout + proc.stderr,
-            proc.returncode,
-            False,
-        )
-    except subprocess.TimeoutExpired as e:
-        output = (e.stdout or b"").decode(errors="replace") + (e.stderr or b"").decode(
-            errors="replace"
-        )
-        returncode, timed_out = None, True
-    finally:
+        try:
+            returncode, timed_out = proc.wait(timeout=timeout_s), False
+        except subprocess.TimeoutExpired:
+            returncode, timed_out = None, True
+        # Kill the whole process group, so nothing the code started keeps running after the call.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
         os.remove(code_path)
+        log.seek(0)
+        output = log.read()
     result = {
         "output": output,
         "elapsed_s": time.monotonic() - start,

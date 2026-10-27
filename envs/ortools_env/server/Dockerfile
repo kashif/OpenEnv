@@ -72,6 +72,22 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
 ENV ENABLE_WEB_INTERFACE=true
 
+# Model-written code runs as the unprivileged `sandbox` user with its own interpreters (see `sandbox.py`). The user
+# cannot read /app, which holds the environment source and the server's packages, so it can call neither the
+# reference solver nor the verifier; the interpreter with `ortools` (for `allow_ortools=True`) is only readable by
+# the `ortools` group.
+RUN useradd --system --no-create-home sandbox \
+    && groupadd --system ortools \
+    && python -m venv /opt/sandbox \
+    && /opt/sandbox/bin/pip install --no-cache-dir "numpy>=1.26" "scipy>=1.11" \
+    && python -m venv /opt/sandbox-ortools \
+    && /opt/sandbox-ortools/bin/pip install --no-cache-dir "numpy>=1.26" "scipy>=1.11" "ortools>=9.12" \
+    && chown -R root:ortools /opt/sandbox-ortools \
+    && chmod -R o-rwx /opt/sandbox-ortools /app
+ENV SANDBOX_USER=sandbox
+ENV SANDBOX_PYTHON=/opt/sandbox/bin/python
+ENV SANDBOX_ORTOOLS_PYTHON=/opt/sandbox-ortools/bin/python
+
 # Health check using Python (more portable than curl/wget)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
