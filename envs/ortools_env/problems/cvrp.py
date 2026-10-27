@@ -140,7 +140,10 @@ def evaluate(instance: dict, solution: dict) -> int:
             continue
         for node in route:
             if not isinstance(node, int) or not 1 <= node < num_nodes:
-                raise ValueError(f"Route {r} contains an invalid customer {node!r}.")
+                raise ValueError(
+                    f"Route {r} contains an invalid customer {node!r}; customers are the integers 1 to "
+                    f"{num_nodes - 1} and routes leave out the depot 0."
+                )
             if node in seen:
                 raise ValueError(f"Customer {node} is visited more than once.")
             seen.add(node)

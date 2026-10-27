@@ -267,3 +267,14 @@ def test_test_algorithm_runs_solve_on_the_example(problem):
     assert "failed" in _text(obs)
     assert env.state.python_calls == 2
     assert not obs.done
+
+
+def test_submitted_main_block_does_not_run(tmp_path):
+    code = (
+        "def solve(instance):\n"
+        "    return {'sequence': [0]}\n"
+        "if __name__ == '__main__':\n"
+        "    raise RuntimeError\n"
+    )
+    result = sandbox.run(code, {}, str(tmp_path), timeout_s=10, solve=True)
+    assert result["solution"] == {"sequence": [0]}

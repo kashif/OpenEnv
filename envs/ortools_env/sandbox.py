@@ -34,7 +34,8 @@ BLOCKED = set(json.loads(sys.argv[1]))
 sys.meta_path.insert(0, _Blocker())
 with open("instance.json") as f:
     instance = json.load(f)
-namespace = {"__name__": "__main__", "instance": instance}
+# A submitted `solve` is imported like a module, so its `if __name__ == "__main__":` tests do not run.
+namespace = {"__name__": "__main__" if sys.argv[3] == "run" else "solution", "instance": instance}
 with open(sys.argv[2]) as f:
     exec(compile(f.read(), sys.argv[2], "exec"), namespace)
 if sys.argv[3] == "solve":
