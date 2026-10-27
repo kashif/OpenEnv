@@ -14,6 +14,6 @@ validation:
   capabilities:
     verifier:
       kind: reward_channel
-    declared_tools: [run_python, submit_solution, submit_algorithm]
+    declared_tools: [run_python, check_solution, test_algorithm, submit_solution, submit_algorithm]
   types:
     tags: [optimization, operations-research, code]

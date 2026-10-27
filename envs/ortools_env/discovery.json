@@ -7,7 +7,7 @@
   ],
   "agent_tools": {
     "protocol": "mcp",
-    "names": ["run_python", "submit_solution", "submit_algorithm"],
+    "names": ["run_python", "check_solution", "test_algorithm", "submit_solution", "submit_algorithm"],
     "source": "envs/ortools_env/server/ortools_environment.py"
   }
 }
