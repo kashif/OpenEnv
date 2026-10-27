@@ -47,20 +47,27 @@ except ImportError:
 SUBMIT_HELP = {
     1: (
         "## Tools\n\n- `run_python(code)` runs a Python script with the instance bound to the global `instance` "
-        "(also in `instance.json`); files you write persist between calls.\n- `submit_solution(solution)` submits "
-        "your final solution as a JSON object in the format above (not a string). You can submit only once."
+        "(also in `instance.json`); files you write persist between calls.\n- `check_solution(solution)` checks a "
+        "candidate solution and returns its objective and the naive objective, or why it is infeasible; it counts "
+        "as a `run_python` call.\n- `submit_solution(solution)` submits your final solution as a JSON object in the "
+        "format above (not a string). You can submit only once."
     ),
     2: (
         "## Tools\n\n- `run_python(code)` runs a Python script with the example instance bound to the global "
-        "`instance` (also in `instance.json`); files you write persist between calls.\n- `submit_algorithm(code)` "
-        "submits Python code defining `solve(instance)`. It runs in a fresh process for each evaluation instance. "
+        "`instance` (also in `instance.json`); files you write persist between calls.\n- `test_algorithm(code)` runs "
+        "your `solve` on the example instance, as at submission, and returns its objective and the naive objective, "
+        "or why it failed; it counts as a `run_python` call.\n- `submit_algorithm(code)` submits Python code "
+        "defining `solve(instance)`. It runs in a fresh process for each evaluation instance. "
         "You can submit only once."
     ),
 }
 
 
 class ORToolsEnvironment(MCPEnvironment):
-    """MCP environment for OR algorithm design, with tools `run_python`, `submit_solution` and `submit_algorithm`."""
+    """
+    MCP environment for OR algorithm design, with tools `run_python`, `check_solution`, `test_algorithm`,
+    `submit_solution` and `submit_algorithm`.
+    """
 
     SUPPORTS_CONCURRENT_SESSIONS = True
 
@@ -81,6 +88,32 @@ class ORToolsEnvironment(MCPEnvironment):
                 The script output, followed by the remaining compute budget.
             """
             return await asyncio.to_thread(self._run_python, code)
+
+        @mcp.tool
+        async def check_solution(solution: dict) -> str:
+            """
+            Check a candidate solution for the instance (level 1) without submitting it.
+
+            Args:
+                solution: The solution object, in the format given in the problem statement.
+
+            Returns:
+                The objective and the naive objective, or why the solution is infeasible.
+            """
+            return await asyncio.to_thread(self._check_solution, solution)
+
+        @mcp.tool
+        async def test_algorithm(code: str) -> str:
+            """
+            Run `solve` on the example instance (level 2) as at submission, without submitting it.
+
+            Args:
+                code: The Python source defining `solve`.
+
+            Returns:
+                The objective and the naive objective, or why `solve` failed.
+            """
+            return await asyncio.to_thread(self._test_algorithm, code)
 
         @mcp.tool
         async def submit_solution(solution: dict) -> str:
@@ -173,9 +206,9 @@ class ORToolsEnvironment(MCPEnvironment):
             allow_ortools (`bool`, *optional*, defaults to `False`):
                 Whether the agent's code may import `ortools`.
             compute_budget_s (`float`, *optional*, defaults to `600.0`):
-                Total wall-clock seconds of `run_python` in the episode.
+                Total wall-clock seconds of `run_python` and `test_algorithm` in the episode.
             max_python_calls (`int`, *optional*, defaults to `50`):
-                Maximum number of `run_python` calls.
+                Maximum number of `run_python`, `check_solution` and `test_algorithm` calls.
             python_timeout_s (`float`, *optional*, defaults to `120.0`):
                 Time limit of a single `run_python` call.
             solve_time_limit_s (`float`, *optional*, defaults to `30.0`):
@@ -195,6 +228,7 @@ class ORToolsEnvironment(MCPEnvironment):
             )
             instance = self._module.generate(instance_seed, size)
         self._instance = instance
+        self._example_baseline = None
         self._eval_instances = []
         if level == 2:
             if eval_seeds is None:
@@ -237,7 +271,7 @@ class ORToolsEnvironment(MCPEnvironment):
         )
         budget = (
             f"## Compute budget\n\n{compute_budget_s:g} seconds of Python compute in total, over at most "
-            f"{max_python_calls} `run_python` calls of at most {python_timeout_s:g} seconds each."
+            f"{max_python_calls} `run_python` (or check) calls of at most {python_timeout_s:g} seconds each."
         )
         prompt = "\n\n".join(
             [
@@ -255,14 +289,25 @@ class ORToolsEnvironment(MCPEnvironment):
         )
         return Observation(done=False, reward=None, metadata={"prompt": prompt})
 
-    def _run_python(self, code: str) -> str:
+    def _budget_error(self) -> Optional[str]:
         if self._state.submitted:
             return "Error: the episode is over."
         if self._state.python_calls >= self._state.max_python_calls:
             return "Error: no Python calls left; submit now."
-        remaining = self._state.compute_budget_s - self._state.compute_used_s
-        if remaining <= 0:
+        if self._state.compute_used_s >= self._state.compute_budget_s:
             return "Error: compute budget exhausted; submit now."
+        return None
+
+    def _budget_left(self) -> str:
+        return (
+            f"{max(0.0, self._state.compute_budget_s - self._state.compute_used_s):.0f}s of compute and "
+            f"{self._state.max_python_calls - self._state.python_calls} calls left"
+        )
+
+    def _run_python(self, code: str) -> str:
+        if error := self._budget_error():
+            return error
+        remaining = self._state.compute_budget_s - self._state.compute_used_s
         result = sandbox.run(
             code,
             self._instance,
@@ -275,11 +320,61 @@ class ORToolsEnvironment(MCPEnvironment):
         status = (
             "timed out" if result["timed_out"] else f"exit code {result['returncode']}"
         )
-        return (
-            f"{result['output']}\n[{status}, {result['elapsed_s']:.1f}s; "
-            f"{max(0.0, self._state.compute_budget_s - self._state.compute_used_s):.0f}s of compute and "
-            f"{self._state.max_python_calls - self._state.python_calls} calls left]"
-        )
+        return f"{result['output']}\n[{status}, {result['elapsed_s']:.1f}s; {self._budget_left()}]"
+
+    def _check_solution(self, solution: dict) -> str:
+        if self._state.level != 1:
+            return "Error: this is a level-2 task; use test_algorithm."
+        if error := self._budget_error():
+            return error
+        self._state.python_calls += 1
+        try:
+            objective = self._module.evaluate(self._instance, solution)
+        except (ValueError, TypeError, KeyError, IndexError) as e:
+            return f"Infeasible solution: {e}\n[{self._budget_left()}]"
+        if self._state.baseline is None:
+            self._state.baseline = self._module.baseline(self._instance)
+        return f"objective={objective} naive={self._state.baseline}\n[{self._budget_left()}]"
+
+    def _test_algorithm(self, code: str) -> str:
+        if self._state.level != 2:
+            return "Error: this is a level-1 task; use check_solution."
+        if error := self._budget_error():
+            return error
+        objective, elapsed_s, message = self._run_solve(code, self._instance)
+        self._state.python_calls += 1
+        self._state.compute_used_s += elapsed_s
+        if objective is not None:
+            if self._example_baseline is None:
+                self._example_baseline = self._module.baseline(self._instance)
+            message = f"objective={objective} naive={self._example_baseline} ({elapsed_s:.1f}s)"
+        return f"{message}\n[{self._budget_left()}]"
+
+    def _run_solve(
+        self, code: str, instance: dict
+    ) -> tuple[Optional[float], float, str]:
+        """Run `solve` on `instance`; return `(objective or None, elapsed seconds, failure message)`."""
+        workdir = tempfile.mkdtemp(prefix="ortools_eval_")
+        try:
+            result = sandbox.run(
+                code,
+                instance,
+                workdir,
+                timeout_s=self._state.solve_time_limit_s,
+                allow_ortools=self._state.allow_ortools,
+                solve=True,
+            )
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        if result["timed_out"]:
+            return None, result["elapsed_s"], "timed out"
+        if result["solution"] is None:
+            return None, result["elapsed_s"], f"failed\n{result['output'][-1000:]}"
+        try:
+            objective = self._module.evaluate(instance, result["solution"])
+        except (ValueError, TypeError, KeyError, IndexError) as e:
+            return None, result["elapsed_s"], f"infeasible ({e})"
+        return objective, result["elapsed_s"], ""
 
     def _submit_solution(self, solution: dict) -> str:
         if self._state.submitted:
@@ -312,31 +407,10 @@ class ORToolsEnvironment(MCPEnvironment):
         self._state.submitted = True
         lines, scores = [], []
         for k, instance in enumerate(self._eval_instances):
-            workdir = tempfile.mkdtemp(prefix="ortools_eval_")
-            try:
-                result = sandbox.run(
-                    code,
-                    instance,
-                    workdir,
-                    timeout_s=self._state.solve_time_limit_s,
-                    allow_ortools=self._state.allow_ortools,
-                    solve=True,
-                )
-            finally:
-                shutil.rmtree(workdir, ignore_errors=True)
-            if result["timed_out"]:
+            objective, _, message = self._run_solve(code, instance)
+            if objective is None:
                 scores.append(score(None, 0, 0))
-                lines.append(f"instance {k}: timed out")
-                continue
-            if result["solution"] is None:
-                scores.append(score(None, 0, 0))
-                lines.append(f"instance {k}: failed\n{result['output'][-1000:]}")
-                continue
-            try:
-                objective = self._module.evaluate(instance, result["solution"])
-            except (ValueError, TypeError, KeyError, IndexError) as e:
-                scores.append(score(None, 0, 0))
-                lines.append(f"instance {k}: infeasible ({e})")
+                lines.append(f"instance {k}: {message}")
                 continue
             reference = self._reference(instance, self._state.eval_references[k])
             self._state.eval_references[k] = reference

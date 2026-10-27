@@ -7,7 +7,8 @@
 """
 OR-Tools Environment - design solutions and algorithms for hard operations research problems.
 
-Tools: `run_python(code)`, `submit_solution(solution)` (level 1) and `submit_algorithm(code)` (level 2).
+Tools: `run_python(code)`, `check_solution(solution)` and `submit_solution(solution)` (level 1), `test_algorithm(code)`
+and `submit_algorithm(code)` (level 2).
 
 Examples:
 

@@ -132,7 +132,13 @@ def test_sandbox_blocks_ortools_and_times_out(tmp_path):
 def test_tools_are_listed():
     env = ORToolsEnvironment()
     names = {tool.name for tool in env.step(ListToolsAction()).tools}
-    assert names == {"run_python", "submit_solution", "submit_algorithm"}
+    assert names == {
+        "run_python",
+        "check_solution",
+        "test_algorithm",
+        "submit_solution",
+        "submit_algorithm",
+    }
 
 
 def test_level_1_episode():
@@ -220,3 +226,44 @@ def test_level_2_algorithm_may_return_numpy_values():
     obs = _call(env, "submit_algorithm", code=code)
     assert "objective=" in _text(obs)
     assert obs.reward > -1.0
+
+
+@pytest.mark.parametrize("problem", sorted(PROBLEMS))
+def test_check_solution_reports_objective_without_ending_the_episode(problem):
+    env = ORToolsEnvironment()
+    env.reset(problem=problem, size=TINY_SIZES[problem], seed=0, max_python_calls=2)
+    solution, objective, _ = PROBLEMS[problem].reference(env._instance, 5, 1)
+    obs = _call(env, "check_solution", solution=solution)
+    assert f"objective={objective} naive=" in _text(obs)
+    assert "reference" not in _text(obs)
+    assert not obs.done
+    obs = _call(env, "check_solution", solution={})
+    assert "Infeasible" in _text(obs)
+    assert not obs.done
+    obs = _call(env, "check_solution", solution=solution)
+    assert "no Python calls left" in _text(obs)
+
+
+@pytest.mark.parametrize("problem", sorted(PROBLEMS))
+def test_test_algorithm_runs_solve_on_the_example(problem):
+    env = ORToolsEnvironment()
+    env.reset(
+        problem=problem,
+        size=TINY_SIZES[problem],
+        level=2,
+        seed=0,
+        num_eval_instances=1,
+        solve_time_limit_s=20,
+    )
+    # A constant `solve` returning the reference solution of the example instance.
+    code = f"def solve(instance):\n    return {PROBLEMS[problem].reference(env._instance, 5, 1)[0]!r}\n"
+    obs = _call(env, "test_algorithm", code=code)
+    assert "objective=" in _text(obs)
+    assert "naive=" in _text(obs)
+    assert not obs.done
+    obs = _call(
+        env, "test_algorithm", code="def solve(instance):\n    raise RuntimeError"
+    )
+    assert "failed" in _text(obs)
+    assert env.state.python_calls == 2
+    assert not obs.done

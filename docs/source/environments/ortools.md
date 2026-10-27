@@ -101,6 +101,8 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 | Tool | Description |
 |---|---|
 | `run_python(code)` | Runs a script in the sandbox with the instance bound to `instance` (and in `instance.json`); files persist between calls. Counts against the compute budget. |
+| `check_solution(solution)` | Level 1: returns the objective of a candidate solution and the naive objective, or why it is infeasible. Counts as a Python call. |
+| `test_algorithm(code)` | Level 2: runs `solve` on the example instance as at submission and returns its objective and the naive objective, or why it failed. Counts against the Python calls and the compute budget. |
 | `submit_solution(solution)` | Level 1: submits the solution as a JSON object. Ends the episode. |
 | `submit_algorithm(code)` | Level 2: submits code defining `solve(instance)`, run in a fresh process per evaluation instance with `solve_time_limit_s`. Ends the episode. |
 
@@ -115,7 +117,7 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 | `reference`, `baseline`, `lower_bound` | computed at submission | precomputed reference, naive objective and bound (level 1) |
 | `eval_seeds`, `eval_references`, `eval_baselines` | `num_eval_instances` seeds from `seed` | hidden evaluation instances, their references and naive objectives (level 2) |
 | `allow_ortools` | `False` | whether the agent's code may import `ortools` |
-| `compute_budget_s`, `max_python_calls`, `python_timeout_s` | `600`, `50`, `120` | sandbox budget |
+| `compute_budget_s`, `max_python_calls`, `python_timeout_s` | `600`, `50`, `120` | sandbox budget, shared by `run_python` and the checks |
 | `solve_time_limit_s` | `30` | per-instance time limit of `solve` (level 2) |
 | `reference_time_limit_s` | `10` | OR-Tools time limit for references computed at submission |
 
