@@ -127,9 +127,13 @@ with ORToolsEnv(base_url="http://localhost:8000").sync() as env:
 
 ## Sandbox
 
-Code runs in a subprocess with a wall-clock limit and, on Linux, a 4 GB address-space limit; the whole process group
-is killed when a call ends, so nothing it started keeps running. Keeping `ortools` (unless `allow_ortools=True`) and
-the environment's own modules out of reach keeps the agent from calling the reference solver or reading the verifier.
+Code runs in a subprocess with a wall-clock limit and, on Linux, a 4 GB per-process address-space limit. Cleanup
+kills the original process group, but detached children can survive. This does not provide aggregate resource
+containment. Hostile submissions remain blocked on per-run Linux PID/cgroup isolation; see
+[Sandbox status and deployment holds](https://github.com/huggingface/OpenEnv/blob/main/envs/ortools_env/SECURITY.md).
+
+Keeping `ortools` (unless `allow_ortools=True`) and the environment's own modules out of reach prevents direct imports
+of the reference solver and verifier. This is only one part of the required isolation boundary.
 
 In the container, the code runs as an unprivileged `sandbox` user with its own interpreter (numpy and scipy only), and
 the environment source and the server's packages are not readable by that user; with `allow_ortools=True` it uses a

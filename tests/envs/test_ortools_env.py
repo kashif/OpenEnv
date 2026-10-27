@@ -427,3 +427,23 @@ def test_background_processes_do_not_outlive_the_call(tmp_path):
     assert result["returncode"] == 0
     time.sleep(3)
     assert not (tmp_path / "late.txt").exists()
+
+
+def test_level_2_malformed_solution_scores_minus_one():
+    env = ORToolsEnvironment()
+    env.reset(
+        problem="tardiness",
+        size="n10",
+        level=2,
+        seed=0,
+        eval_seeds=[1],
+        eval_references=[1],
+    )
+    obs = _call(
+        env,
+        "submit_algorithm",
+        code="import os\nopen('solution.json', 'w').write('{broken')\nos._exit(0)",
+    )
+    assert obs.done
+    assert obs.reward == -1.0
+    assert "failed" in _text(obs)
