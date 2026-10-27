@@ -405,3 +405,12 @@ def test_loaders_read_benchmark_formats(tmp_path):
     assert instance["unavailable"] == [[1, 6]]
     _, objective, _ = PROBLEMS["timetabling"].reference(instance, 5, 1)
     assert objective >= 0
+
+
+def test_solve_failures_explain_themselves(tmp_path):
+    result = sandbox.run("x = 1", {}, str(tmp_path), timeout_s=10, solve=True)
+    assert "must define solve(instance)" in result["output"]
+    code = "def solve(instance):\n    pass\n"
+    result = sandbox.run(code, {}, str(tmp_path), timeout_s=10, solve=True)
+    assert "must return a dict, not NoneType" in result["output"]
+    assert result["solution"] is None

@@ -39,7 +39,11 @@ namespace = {"__name__": "__main__" if sys.argv[3] == "run" else "solution", "in
 with open(sys.argv[2]) as f:
     exec(compile(f.read(), sys.argv[2], "exec"), namespace)
 if sys.argv[3] == "solve":
+    if "solve" not in namespace:
+        raise NameError("the code must define solve(instance)")
     solution = namespace["solve"](instance)
+    if not isinstance(solution, dict):
+        raise TypeError(f"solve(instance) must return a dict, not {type(solution).__name__}")
     with open("solution.json", "w") as f:
         json.dump(solution, f, default=lambda o: o.tolist())
 """
