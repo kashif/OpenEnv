@@ -8,10 +8,16 @@
 Verifier of an exported Harbor task, copied to `/tests/verify.py` next to `problem.py` (the problem module) and
 `task.json` (level, references and, at level 2, the hidden evaluation instances). Writes the score to
 `/logs/verifier/reward.txt`.
+
+At level 2, the submitted `solve` runs as the unprivileged `sandbox` user of the task image, so it cannot read the
+references in `/tests` or write the reward, and its whole process group is killed after each instance, so nothing it
+starts outlives the call.
 """
 
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -63,19 +69,30 @@ def level_2(task):
         )
         with open(instance_path, "w") as f:
             json.dump(instance, f)
+        shutil.chown(workdir, "sandbox", "sandbox")
+        proc = subprocess.Popen(
+            [sys.executable, "-I", "-c", RUNNER, instance_path, solution_path],
+            cwd=workdir,
+            start_new_session=True,
+            user="sandbox",
+            group="sandbox",
+            extra_groups=[],
+        )
         try:
-            subprocess.run(
-                [sys.executable, "-c", RUNNER, instance_path, solution_path],
-                cwd=workdir,
-                timeout=task["solve_time_limit_s"],
-                check=True,
-            )
+            if proc.wait(timeout=task["solve_time_limit_s"]) != 0:
+                raise RuntimeError(f"solve exited with code {proc.returncode}")
             with open(solution_path) as f:
                 objective = problem.evaluate(instance, json.load(f))
         except Exception as e:  # noqa: BLE001 - any failure of the submitted code is infeasible
             print(f"instance {k}: {type(e).__name__}: {e}")
             scores.append(score(None, reference, baseline))
             continue
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
         print(
             f"instance {k}: objective={objective} naive={baseline} reference={reference}"
         )
@@ -84,6 +101,10 @@ def level_2(task):
 
 
 def main():
+    os.chmod("/tests", 0o700)
+    subprocess.run(["chmod", "-R", "a+rX", "/app"], check=True)
+    os.makedirs("/logs/verifier", exist_ok=True)
+    os.chmod("/logs", 0o700)
     with open("/tests/task.json") as f:
         task = json.load(f)
     try:

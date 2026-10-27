@@ -40,6 +40,8 @@ SUBMIT_HELP = {
 DOCKERFILE = """\
 FROM python:3.12-slim
 RUN pip install --no-cache-dir numpy scipy{ortools}
+# The verifier runs the submitted `solve` as this user, which cannot read `/tests` or write `/logs`.
+RUN useradd --system --no-create-home sandbox
 WORKDIR /app
 COPY instance.json /app/instance.json
 """
