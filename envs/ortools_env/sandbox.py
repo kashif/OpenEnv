@@ -104,31 +104,43 @@ def run(
         blocked = list(BLOCKED_ALWAYS) + ([] if allow_ortools else ["ortools"])
         # Never open an existing sandbox-owned entry for a privileged write. Replace
         # it atomically, and pass the authoritative input through a private descriptor.
-        instance_name = f".instance-{secrets.token_hex(16)}"
-        fd = os.open(
-            instance_name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o644,
-            dir_fd=directory_fd,
-        )
         try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(instance, f)
-            os.replace(
+            instance_name = f".instance-{secrets.token_hex(16)}"
+            fd = os.open(
                 instance_name,
-                "instance.json",
-                src_dir_fd=directory_fd,
-                dst_dir_fd=directory_fd,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o644,
+                dir_fd=directory_fd,
             )
-        finally:
             try:
-                os.unlink(instance_name, dir_fd=directory_fd)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(instance, f)
+                os.replace(
+                    instance_name,
+                    "instance.json",
+                    src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd,
+                )
+            finally:
+                try:
+                    os.unlink(instance_name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+            try:
+                os.unlink("solution.json", dir_fd=directory_fd)
             except FileNotFoundError:
                 pass
-        try:
-            os.unlink("solution.json", dir_fd=directory_fd)
-        except FileNotFoundError:
-            pass
+        except OSError:
+            # Leave adversarial directories untouched; never traverse them to recover.
+            result = {
+                "output": "failed to prepare sandbox files",
+                "elapsed_s": 0.0,
+                "timed_out": False,
+                "returncode": 1,
+            }
+            if solve:
+                result["solution"] = None
+            return result
         user = {}
         if SANDBOX_USER is not None:
             account = pwd.getpwnam(SANDBOX_USER)

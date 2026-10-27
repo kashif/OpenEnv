@@ -11,6 +11,9 @@ comes from a server-owned descriptor. The persistent instance file is replaced
 atomically relative to a pinned, no-follow directory descriptor; existing links
 are never opened for writing. Solution reads reject links and nonregular files,
 are bounded to 1 MiB, and treat malformed JSON as a failed submission.
+If a submission leaves a directory at either reserved filename, subsequent calls
+return a controlled setup failure without launching code. The directory is left
+untouched until the workdir is reset; setup never traverses or recursively deletes it.
 
 ## Unresolved: detached processes and aggregate resource containment
 

@@ -18,6 +18,49 @@ sandbox = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(sandbox)
 
 
+@pytest.mark.parametrize("name", ["instance.json", "solution.json"])
+@pytest.mark.parametrize("nonempty", [False, True])
+@pytest.mark.parametrize("solve", [False, True])
+def test_submission_directory_causes_controlled_setup_failure(
+    tmp_path, name, nonempty, solve
+):
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "keep.txt"
+    target.write_text("untouched")
+    code = "import os\n"
+    if name == "instance.json":
+        code += f"os.unlink({name!r})\n"
+    code += f"os.mkdir({name!r})\n"
+    if nonempty:
+        code += f"os.symlink({str(outside)!r}, {name!r} + '/outside')\n"
+    first = sandbox.run(code, {}, str(workdir), 10)
+    assert first["returncode"] == 0, first["output"]
+
+    result = sandbox.run(
+        "open('executed', 'w').close()\ndef solve(instance):\n    return instance",
+        {"value": 42},
+        str(workdir),
+        10,
+        solve=solve,
+    )
+    assert result["returncode"] == 1
+    assert result["timed_out"] is False
+    if solve:
+        assert result["solution"] is None
+    else:
+        assert "solution" not in result
+    assert result["output"] == "failed to prepare sandbox files"
+    assert not (workdir / "executed").exists()
+    assert (workdir / name).is_dir()
+    assert target.read_text() == "untouched"
+    if nonempty:
+        assert (workdir / name / "outside").is_symlink()
+    assert not list(workdir.glob(".instance-*"))
+
+
 def test_persistent_instance_symlink_cannot_redirect_server_write(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()
